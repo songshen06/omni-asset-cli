@@ -309,6 +309,9 @@ python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/min
 某些资产会通过相对 MDL 路径引用材质，例如 `gltf/pbr.mdl`。  
 如果解析器搜索路径没有包含对应目录，`MaterialPathChecker` 和 `MissingReferenceChecker` 可能会出现误报。
 
+这里的搜索路径不是某个固定默认值，而是可以按环境灵活配置的。  
+`/isaac-sim/kit/mdl/core/mdl` 只是一个示例，不是唯一标准路径，也不是所有机器都会自动具备的默认配置。
+
 例如检查 `bottle.usd` 这类资产时，如果 shell 中先设置：
 
 ```bash
