@@ -25,6 +25,54 @@
 - 可阅读的 Markdown 报告
 - 面向资产用途的判断结论
 
+## 设计理念
+
+这个项目当前有两个执行层面：
+
+- `人类界面`
+- `Agent 界面`
+
+这不是重复设计，而是刻意分层。
+
+### 人类界面
+
+面向：
+
+- 技术美术
+- 资产制作人员
+- 测试人员
+- 项目实施人员
+
+特点：
+
+- 直接运行脚本
+- 明确指定资产路径
+- 可以手工选择 `--profile`
+- 更适合本地调试、复测和人工分析
+
+### Agent 界面
+
+面向：
+
+- Codex
+- ChatGPT Agent
+- 自动化流程
+- 工具链集成
+
+特点：
+
+- 从自然语言出发
+- 先识别资产场景，再映射到规则集
+- 输出机器可读参数和可执行命令
+- 更适合自动调用、批处理和系统集成
+
+### 为什么要分成两层
+
+- 人类操作时，最需要的是直接、可控、可复测
+- Agent 操作时，最需要的是稳定映射、可解释和结构化输出
+- 两层共用同一个验证主路径 `run_sync_validation.py`
+- 这样既能保证执行一致性，也能兼顾交互方式差异
+
 ## 当前能力
 
 - 支持单个 `.usd` / `.usda` 资产校验
@@ -275,6 +323,64 @@ python omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py \
   examples/boat_test/boat.usd \
   "帮我看这个机器人资产适不适合做抓取和移动"
 ```
+
+## 两类调用示例
+
+### 人类执行脚本的例子
+
+#### 例子 1：按静态资产场景检查
+
+```bash
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
+  examples/boat_test/boat.usd \
+  --profile static
+```
+
+适合：
+
+- 我已经知道要检查哪个文件
+- 我想直接看 JSON 和 Markdown 结果
+- 我想明确控制当前场景对应的规则集
+
+#### 例子 2：按可移动资产场景检查
+
+```bash
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
+  examples/boat_test/boat.usd \
+  --profile movable
+```
+
+适合：
+
+- 我关心抓取、搬运、机器人交互
+- 我希望报告里明确说明为什么启用了这些 rules
+
+### Agent 调用的例子
+
+#### 例子 1：让 Agent 自动识别碰撞场景
+
+```text
+用 $omniverse-usd-asset-validator 检查这个 USD，按可碰撞资产场景来判断：examples/boat_test/boat.usd
+```
+
+预期行为：
+
+- Agent 识别出这是 `collidable` 场景
+- 自动生成 `--profile collidable`
+- 调用同步校验主脚本
+- 输出“为什么这些 rules 适合碰撞场景”
+
+#### 例子 2：让 Agent 自动识别可移动场景
+
+```text
+用 $omniverse-usd-asset-validator 看这个机器人资产适不适合做抓取和移动：examples/boat_test/boat.usd
+```
+
+预期行为：
+
+- Agent 识别出这是 `movable` 场景
+- 自动启用结构、入口和 mesh 稳定性相关规则
+- 在结果中解释为什么 `KindChecker`、`ValidateTopologyChecker` 等规则在这个场景重要
 
 ## 示例输出
 
