@@ -1,4 +1,4 @@
 interface:
   display_name: "Omniverse USD Asset Validator"
-  short_description: "Validate USD assets with Omniverse CLI"
-  default_prompt: "Use $omniverse-usd-asset-validator to validate this USD asset from a natural-language request."
+  short_description: "Validate USD assets by scenario-aware rules"
+  default_prompt: "Use $omniverse-usd-asset-validator to validate this USD asset. First identify whether it should be treated as a static, collidable, or movable asset, then explain why the selected rules fit that scenario."

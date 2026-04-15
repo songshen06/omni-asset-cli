@@ -296,7 +296,6 @@ python omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py \
 ## 当前限制
 
 - 当前规则选择仍以手工指定或自然语言映射为主
-- 三类资产场景已经体现在“结果解释”里，但还没有完全做成“场景 preset 命令入口”
 - 原始 CLI 路径更适合作为观测工具，而不是默认主执行路径
 
 ## 下一步建议
