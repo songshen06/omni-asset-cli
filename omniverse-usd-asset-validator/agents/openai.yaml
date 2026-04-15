@@ -1,0 +1,4 @@
+interface:
+  display_name: "Omniverse USD Asset Validator"
+  short_description: "Validate USD assets with Omniverse CLI"
+  default_prompt: "Use $omniverse-usd-asset-validator to validate this USD asset from a natural-language request."

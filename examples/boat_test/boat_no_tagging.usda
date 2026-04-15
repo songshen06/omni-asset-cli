@@ -1,0 +1,16 @@
+#usda 1.0
+(
+    customLayerData = {
+        dictionary SimReady_Metadata = {
+            string type = "prop"
+            string version = "0.9.1"
+        }
+    }
+    defaultPrim = "RootNode"
+    metersPerUnit = 1
+    subLayers = [
+        @./boat_base.usd@
+    ]
+    upAxis = "Z"
+)
+
