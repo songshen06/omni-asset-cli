@@ -304,6 +304,30 @@ python omniverse-usd-asset-validator/scripts/check_omniverse_asset_validator_env
 python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/minimal_scene.usda
 ```
 
+### 3.1 处理 MDL / 材质搜索路径
+
+某些资产会通过相对 MDL 路径引用材质，例如 `gltf/pbr.mdl`。  
+如果解析器搜索路径没有包含对应目录，`MaterialPathChecker` 和 `MissingReferenceChecker` 可能会出现误报。
+
+例如检查 `bottle.usd` 这类资产时，如果 shell 中先设置：
+
+```bash
+export PXR_AR_DEFAULT_SEARCH_PATH="/isaac-sim/kit/mdl/core/mdl"
+```
+
+就可能正确解析原本找不到的 MDL 路径。
+
+现在脚本也支持直接传参，不必手工先 `export`：
+
+```bash
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
+  /path/to/bottle.usd \
+  --profile static \
+  --pxr-ar-default-search-path /isaac-sim/kit/mdl/core/mdl
+```
+
+如果环境里已经存在 `PXR_AR_DEFAULT_SEARCH_PATH`，脚本会在原值基础上追加，而不是覆盖。
+
 ### 4. 从自然语言出发
 
 ```bash
@@ -341,6 +365,7 @@ python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
 - 我已经知道要检查哪个文件
 - 我想直接看 JSON 和 Markdown 结果
 - 我想明确控制当前场景对应的规则集
+- 我需要手工补充 MDL / 材质搜索路径时
 
 #### 例子 2：按可移动资产场景检查
 

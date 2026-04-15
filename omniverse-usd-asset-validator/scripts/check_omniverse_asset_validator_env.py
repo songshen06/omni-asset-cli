@@ -7,6 +7,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import os
 
 
 def run_command(args: list[str]) -> tuple[int, str]:
@@ -49,6 +50,12 @@ def main() -> int:
         print("pip package: installed")
     else:
         print("pip package: not detected in this interpreter")
+
+    search_path = os.environ.get("PXR_AR_DEFAULT_SEARCH_PATH")
+    if search_path:
+        print(f"PXR_AR_DEFAULT_SEARCH_PATH: {search_path}")
+    else:
+        print("PXR_AR_DEFAULT_SEARCH_PATH: not set")
 
     return 0
 

@@ -5,12 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from collections import Counter
 from pathlib import Path
 from typing import Any
-
-from omni.asset_validator import CategoryRuleRegistry, ValidationEngine
 
 RULE_EXPLANATIONS = {
     "StageMetadataChecker": {
@@ -215,6 +214,12 @@ def parse_args() -> argparse.Namespace:
         help="Path to the Markdown report. Defaults to the JSON path with a .md suffix.",
     )
     parser.add_argument(
+        "--pxr-ar-default-search-path",
+        action="append",
+        default=[],
+        help="Additional resolver search path entries to append to PXR_AR_DEFAULT_SEARCH_PATH.",
+    )
+    parser.add_argument(
         "--profile",
         choices=sorted(PROFILE_PRESETS.keys()),
         help="Apply a preset rule set for a target asset scenario.",
@@ -225,6 +230,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--init-rules", action="store_true", help="Enable default rule initialization")
     parser.add_argument("--variants", action="store_true", help="Enable variant processing")
     return parser.parse_args()
+
+
+def normalize_search_paths(raw_values: list[str]) -> list[str]:
+    paths: list[str] = []
+    for raw_value in raw_values:
+        for item in raw_value.split(os.pathsep):
+            candidate = item.strip()
+            if candidate and candidate not in paths:
+                paths.append(candidate)
+    return paths
+
+
+def configure_search_paths(args: argparse.Namespace) -> list[str]:
+    existing_paths = normalize_search_paths([os.environ.get("PXR_AR_DEFAULT_SEARCH_PATH", "")])
+    requested_paths = normalize_search_paths(args.pxr_ar_default_search_path)
+    combined_paths = existing_paths.copy()
+
+    for path in requested_paths:
+        if path not in combined_paths:
+            combined_paths.append(path)
+
+    if combined_paths:
+        os.environ["PXR_AR_DEFAULT_SEARCH_PATH"] = os.pathsep.join(combined_paths)
+
+    return combined_paths
 
 
 def get_effective_rules(args: argparse.Namespace) -> list[str]:
@@ -240,7 +270,9 @@ def get_effective_rules(args: argparse.Namespace) -> list[str]:
     return effective_rules
 
 
-def build_engine(args: argparse.Namespace) -> ValidationEngine:
+def build_engine(args: argparse.Namespace) -> Any:
+    from omni.asset_validator import CategoryRuleRegistry, ValidationEngine
+
     engine = ValidationEngine(init_rules=args.init_rules, variants=args.variants)
     registry = CategoryRuleRegistry()
 
@@ -289,7 +321,12 @@ def issue_to_dict(issue: Any) -> dict[str, Any]:
     }
 
 
-def build_payload(args: argparse.Namespace, elapsed_seconds: float, issues: list[dict[str, Any]]) -> dict[str, Any]:
+def build_payload(
+    args: argparse.Namespace,
+    elapsed_seconds: float,
+    issues: list[dict[str, Any]],
+    search_paths: list[str],
+) -> dict[str, Any]:
     effective_rules = get_effective_rules(args)
     severity_counts = Counter(issue["severity"] or "UNKNOWN" for issue in issues)
     rule_counts = Counter(issue["rule"] for issue in issues if issue["rule"])
@@ -317,6 +354,7 @@ def build_payload(args: argparse.Namespace, elapsed_seconds: float, issues: list
             "predicate": args.predicate,
             "init_rules": args.init_rules,
             "variants": args.variants,
+            "pxr_ar_default_search_path": search_paths,
         },
         "summary": {
             "issue_count": len(issues),
@@ -470,6 +508,7 @@ def build_markdown_report(payload: dict[str, Any]) -> str:
     grouped_rules = collect_rules_by_priority(payload)
     assessments = asset_use_assessments(payload)
     profile_rationale = build_profile_rationale(payload["config"].get("profile"))
+    search_paths = payload["config"].get("pxr_ar_default_search_path", [])
 
     lines = [
         "# SimReady 资产可用性报告",
@@ -483,6 +522,12 @@ def build_markdown_report(payload: dict[str, Any]) -> str:
         lines.extend(["## 当前场景与启用规则", ""])
         lines.extend(profile_rationale)
         lines.extend([""])
+
+    if search_paths:
+        lines.extend(["## 解析器搜索路径", ""])
+        lines.append(f"- `PXR_AR_DEFAULT_SEARCH_PATH`：`{os.pathsep.join(search_paths)}`")
+        lines.append("- 这有助于减少 MDL、材质依赖和外部引用因搜索路径缺失导致的误报。")
+        lines.append("")
 
     lines.extend(
         [
@@ -552,6 +597,9 @@ def format_human_summary(payload: dict[str, Any]) -> str:
         f"IssueCount: {summary['issue_count']}",
         f"SeverityCounts: {json.dumps(summary['severity_counts'], ensure_ascii=False)}",
     ]
+    search_paths = payload["config"].get("pxr_ar_default_search_path", [])
+    if search_paths:
+        lines.append(f"PXR_AR_DEFAULT_SEARCH_PATH: {os.pathsep.join(search_paths)}")
     profile_name = payload["config"].get("profile")
     if profile_name:
         preset = PROFILE_PRESETS[profile_name]
@@ -576,6 +624,7 @@ def format_human_summary(payload: dict[str, Any]) -> str:
 
 def main() -> int:
     args = parse_args()
+    search_paths = configure_search_paths(args)
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     output_md = args.output_md or args.output_json.with_suffix(".md")
     output_md.parent.mkdir(parents=True, exist_ok=True)
@@ -586,7 +635,7 @@ def main() -> int:
         elapsed = time.time() - start
 
         issues = [issue_to_dict(issue) for issue in results.issues]
-        payload = build_payload(args, elapsed, issues)
+        payload = build_payload(args, elapsed, issues, search_paths)
     except Exception as exc:
         elapsed = time.time() - start
         payload = {
@@ -603,6 +652,7 @@ def main() -> int:
                 "predicate": args.predicate,
                 "init_rules": args.init_rules,
                 "variants": args.variants,
+                "pxr_ar_default_search_path": search_paths,
             },
             "summary": {
                 "issue_count": 0,
