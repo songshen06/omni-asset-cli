@@ -1,48 +1,193 @@
-# Omni Asset CLI
+# omni-asset-cli
 
-一个面向 GitHub 发布的 OpenUSD 资产校验项目，核心能力基于 NVIDIA Omniverse Asset Validator，为 Agent 和人工操作者提供：
+一个面向 OpenUSD 资产校验的实用项目，基于 NVIDIA Omniverse Asset Validator，提供：
 
-- 单个 USD 资产的同步校验
+- 稳定的同步校验主路径
 - 自然语言到校验参数的映射
 - 机器可读 JSON 输出
 - 人类可读 Markdown 报告
-- 面向 SimReady / Isaac Sim 场景的结果解释
+- 面向不同资产用途的结果解释
 
-## 当前进展
+这个项目当前更偏向 **Agent / 自动化工具接入**，而不是单纯的人手命令集合。
 
-项目当前已经完成以下核心能力：
+## 项目目标
 
-- 已建立可用的 skill 目录结构
-- 已完成环境检查脚本
-- 已完成自然语言到校验参数的映射脚本
-- 已完成同步 Python API 校验主路径
-- 已完成异步 CLI 观测脚本
-- 已沉淀最小样例与真实资产测试结果
+很多 USD 校验工具只能返回 rule 列表，但在真实交付里，大家更关心的是：
 
-当前推荐的正式执行路径是：
+- 这个资产能不能先当静态资产使用
+- 这个资产适不适合做碰撞
+- 这个资产能不能继续做可移动、抓取或物理交互
 
-- 默认使用 `omniverse-usd-asset-validator/scripts/run_sync_validation.py`
-- 不再把原始 `omni_asset_validate` CLI 作为主执行入口
+`omni-asset-cli` 的目标就是把底层 validator 输出，转换成：
 
-## 项目亮点
+- 可执行的命令
+- 可复用的 JSON 结果
+- 可阅读的 Markdown 报告
+- 面向资产用途的判断结论
 
-### 1. 同步主路径更稳定
+## 当前能力
 
-项目优先通过 Python API 执行校验，避免当前环境下原始 CLI 异步路径可能出现的超时问题。
+- 支持单个 `.usd` / `.usda` 资产校验
+- 支持自然语言请求映射为确定性参数
+- 支持同步 Python API 校验
+- 支持异步 CLI timeout 行为观测
+- 支持生成中文 Markdown 报告
+- 支持按三类资产用途输出判断
 
-### 2. 支持自然语言驱动
+当前推荐主路径：
 
-可以把“检查引用”“检查材质”“检查 Isaac Sim 结构”这类自然语言请求，映射成确定性的校验参数。
+```bash
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/minimal_scene.usda
+```
 
-### 3. 已完成三大使用场景区分
+不再推荐把原始 `omni_asset_validate` CLI 作为默认主入口。
 
-Markdown 报告会按资产用途给出判断：
+## 为什么这个项目有用
+
+### 同步路径更稳定
+
+当前环境下，原始 CLI 路径存在超时和返回不稳定问题。  
+项目默认使用同步 Python API 路径，避免把“CLI 没正常返回”和“资产真的有问题”混在一起。
+
+### 不只返回 rule，还返回结论
+
+项目不是简单打印校验项，而是把结果组织成：
+
+- 一句话结论
+- 按优先级分类的问题
+- 建议的处理顺序
+- 按资产用途的可用性判断
+
+### 已区分三类资产场景
+
+当前报告会分别评估：
 
 - `静态资产`
 - `可碰撞资产`
 - `可移动资产`
 
-这部分逻辑已经体现在 `omniverse-usd-asset-validator/scripts/run_sync_validation.py` 中，并已用于现有报告产物。
+这部分逻辑已经落在 `omniverse-usd-asset-validator/scripts/run_sync_validation.py` 中。
+
+## 三类资产场景与规则策略
+
+这个项目的一个核心观点是：
+
+> 不同资产用途，应该关注不同的校验规则，不能所有场景都用一套 rules。
+
+### 1. 静态资产
+
+适用场景：
+
+- 展示
+- 场景摆放
+- 背景道具
+- 非交互资产
+
+优先关注的规则：
+
+- `StageMetadataChecker`
+- `DefaultPrimChecker`
+- `MissingReferenceChecker`
+- `MaterialPathChecker`
+- `UsdDanglingMaterialBinding`
+- `UsdMaterialBindingApi`
+
+为什么：
+
+- 静态资产最先暴露的问题通常是结构入口、引用完整性、材质链路和基础元数据
+- 这类资产即使 mesh 不是完美，也可能还能预览，但引用和材质断掉会直接影响交付质量
+
+推荐命令示例：
+
+```bash
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/boat_test/boat.usd \
+  --rule StageMetadataChecker \
+  --rule DefaultPrimChecker \
+  --rule MissingReferenceChecker
+```
+
+### 2. 可碰撞资产
+
+适用场景：
+
+- 碰撞体生成
+- 障碍物
+- 物理接触检测
+- 可进入仿真但不强调复杂运动学
+
+优先关注的规则：
+
+- `MissingReferenceChecker`
+- `ValidateTopologyChecker`
+- `ManifoldChecker`
+- `ZeroAreaFaceChecker`
+- `NormalsValidChecker`
+- `WeldChecker`
+- `ExtentsChecker`
+
+为什么：
+
+- 碰撞相关资产最怕拓扑脏、non-manifold、零面积面、法线异常和尺度包围盒异常
+- 即使材质不完整，也不一定阻断碰撞；但 mesh 质量差会显著影响物理稳定性
+
+推荐命令示例：
+
+```bash
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/boat_test/boat.usd \
+  --rule MissingReferenceChecker \
+  --rule ValidateTopologyChecker \
+  --rule ManifoldChecker \
+  --rule ZeroAreaFaceChecker
+```
+
+### 3. 可移动资产
+
+适用场景：
+
+- 搬运
+- 抓取
+- 机器人交互
+- 可配置物理行为的资产
+
+优先关注的规则：
+
+- `KindChecker`
+- `DefaultPrimChecker`
+- `StageMetadataChecker`
+- `MissingReferenceChecker`
+- `ValidateTopologyChecker`
+- `ManifoldChecker`
+- `NormalsValidChecker`
+
+为什么：
+
+- 可移动资产不仅要“能显示”，还要结构语义合理、层级清晰、几何质量稳定
+- 对 Isaac Sim / SimReady / 机器人资产来说，`KindChecker` 的重要性会明显提高
+
+推荐命令示例：
+
+```bash
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/boat_test/boat.usd \
+  --rule KindChecker \
+  --rule DefaultPrimChecker \
+  --rule MissingReferenceChecker \
+  --rule ValidateTopologyChecker
+```
+
+## 当前项目状态
+
+目前已经完成：
+
+- Skill 基本目录结构
+- 环境检查脚本
+- 自然语言参数映射脚本
+- 同步校验主脚本
+- 异步 CLI 包装脚本
+- 中文参考文档
+- 最小样例和 `boat` 样例
+- 三类资产用途判断逻辑
+
+换句话说，项目已经不再是“脚本草稿”，而是一个可以继续迭代成 GitHub 项目的原型。
 
 ## 目录结构
 
@@ -52,43 +197,50 @@ omniverse-usd-asset-validator/
   references/
   scripts/
 examples/
-out/
 AGENTS.md
+README.md
 ```
 
-- `omniverse-usd-asset-validator/scripts/`：主脚本目录
-- `omniverse-usd-asset-validator/references/`：中文说明、环境说明与测试记录
-- `omniverse-usd-asset-validator/agents/openai.yaml`：Agent 入口元数据
-- `examples/`：最小样例和 `boat_test` 测试资产
-- `out/`：历史 JSON / Markdown 校验输出
+- `omniverse-usd-asset-validator/scripts/`：主脚本
+- `omniverse-usd-asset-validator/references/`：说明文档和测试记录
+- `omniverse-usd-asset-validator/agents/openai.yaml`：Agent 元数据
+- `examples/`：最小样例和真实测试样例
 
-## 主要脚本
+## 核心脚本
 
 ### `omniverse-usd-asset-validator/scripts/check_omniverse_asset_validator_env.py`
 
-检查 Python、包和 CLI 环境是否可用。
+检查 Python 版本、包安装状态和 CLI 可用性。
 
 ### `omniverse-usd-asset-validator/scripts/run_sync_validation.py`
 
-当前默认主路径：
+当前默认主脚本，负责：
 
 - 同步执行校验
 - 输出 JSON
 - 输出 Markdown 报告
-- 区分 `execution_status` 与 `validation_status`
-- 输出三大使用场景判断
+- 区分 `execution_status` 和 `validation_status`
+- 输出三类资产用途判断
 
 ### `omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py`
 
-把自然语言映射成 `run_sync_validation.py` 参数，并可选择直接执行。
+把自然语言映射成校验参数，适合：
+
+- Agent 集成
+- 参数生成
+- 自然语言调用验证
 
 ### `omniverse-usd-asset-validator/scripts/run_async_validation.py`
 
-用于观察原始 CLI 行为和 timeout 情况，不建议作为主执行路径。
+用于观察原始 CLI 行为，主要用于：
+
+- timeout 现象复现
+- 长时运行观测
+- 非主路径排障
 
 ## 快速开始
 
-建议使用独立虚拟环境：
+### 1. 创建环境
 
 ```bash
 python3.10 -m venv .venv
@@ -97,55 +249,63 @@ python -m pip install --upgrade pip
 python -m pip install "omniverse-asset-validator[usd,numpy]"
 ```
 
-检查环境：
+### 2. 检查环境
 
 ```bash
 python omniverse-usd-asset-validator/scripts/check_omniverse_asset_validator_env.py
 ```
 
-运行最小样例：
+### 3. 运行最小样例
 
 ```bash
 python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/minimal_scene.usda
 ```
 
-自然语言映射示例：
+### 4. 从自然语言出发
 
 ```bash
-python omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py examples/minimal_scene.usda "check references"
+python omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py \
+  examples/minimal_scene.usda \
+  "check references"
 ```
 
-## 示例产物
+## 示例输出
 
-仓库中已经保留了一些历史校验结果，可用于展示当前阶段能力：
+项目已经生成过多份 Markdown / JSON 报告，用于验证当前能力，例如：
 
-- `out/chair_validation_new.md`
-- `out/bag_validation_new.md`
-- `out/bottle_validation.md`
+- `静态资产` 视角下的可用性结论
+- `可碰撞资产` 视角下的风险判断
+- `可移动资产` 视角下的结构与 mesh 风险判断
 
-这些结果显示项目已经不仅能输出 rule 级问题，还能把结果转换成面向资产用途的可读结论。
+这说明项目已经不仅是在“跑规则”，而是在向“交付判断工具”发展。
 
 ## 文档入口
 
-推荐优先阅读以下文件：
-
+- `omniverse-usd-asset-validator/SKILL.md`
 - `omniverse-usd-asset-validator/references/project-documentation-zh.md`
 - `omniverse-usd-asset-validator/references/human-operator-guide-zh.md`
-- `omniverse-usd-asset-validator/SKILL.md`
+- `omniverse-usd-asset-validator/references/natural-language-to-args-zh.md`
 
-## 上传到 GitHub 前的建议
+## 当前限制
 
-建议保留：
+- 当前规则选择仍以手工指定或自然语言映射为主
+- 三类资产场景已经体现在“结果解释”里，但还没有完全做成“场景 preset 命令入口”
+- 原始 CLI 路径更适合作为观测工具，而不是默认主执行路径
 
-- `omniverse-usd-asset-validator/`
-- `examples/`
-- `README.md`
-- `AGENTS.md`
+## 下一步建议
 
-建议忽略：
+如果继续往前做，最有价值的下一步是把三类资产场景真正做成 preset，例如：
 
-- `.venv/`
-- `__pycache__/`
-- `out/`
+- `static`
+- `collidable`
+- `movable`
 
-如果你希望把历史报告作为展示样例，也可以先保留 `out/`，后续再决定是否移出到 `examples/outputs/`。
+这样就可以直接支持：
+
+```bash
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py asset.usd --profile static
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py asset.usd --profile collidable
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py asset.usd --profile movable
+```
+
+这会让“不同 asset 场景启用不同 rules”从 README 里的策略，进一步升级成脚本里的正式能力。
