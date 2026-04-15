@@ -264,6 +264,18 @@ python omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py \
   "check references"
 ```
 
+也支持直接从场景意图映射到 profile，例如：
+
+```bash
+python omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py \
+  examples/boat_test/boat.usd \
+  "帮我按可碰撞资产场景检查这个 USD"
+
+python omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py \
+  examples/boat_test/boat.usd \
+  "帮我看这个机器人资产适不适合做抓取和移动"
+```
+
 ## 示例输出
 
 项目已经生成过多份 Markdown / JSON 报告，用于验证当前能力，例如：
@@ -308,6 +320,8 @@ python omniverse-usd-asset-validator/scripts/run_sync_validation.py asset.usd --
 - 当前场景
 - 当前场景启用的规则
 - 为什么这些规则在该场景里重要
+
+自然语言映射脚本也会优先识别这些场景意图，并自动生成对应的 `--profile` 命令。
 
 如果你还想补充自定义规则，也可以叠加：
 

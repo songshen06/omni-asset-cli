@@ -55,6 +55,53 @@ PREDICATE_PATTERNS = [
     ("IsWarning", [r"only warnings", r"只看 warning", r"只看警告"]),
 ]
 
+PROFILE_PATTERNS = [
+    (
+        "static",
+        [
+            r"static asset",
+            r"static usage",
+            r"display asset",
+            r"background prop",
+            r"静态资产",
+            r"展示资产",
+            r"背景道具",
+            r"场景摆放",
+            r"非交互资产",
+        ],
+    ),
+    (
+        "collidable",
+        [
+            r"collidable asset",
+            r"collision asset",
+            r"collision",
+            r"collidable",
+            r"碰撞资产",
+            r"碰撞体",
+            r"碰撞",
+            r"障碍物",
+            r"物理接触",
+        ],
+    ),
+    (
+        "movable",
+        [
+            r"movable asset",
+            r"movable",
+            r"grasp",
+            r"pick and place",
+            r"robot asset",
+            r"robot interaction",
+            r"可移动资产",
+            r"搬运",
+            r"抓取",
+            r"机器人资产",
+            r"机器人交互",
+        ],
+    ),
+]
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -85,8 +132,14 @@ def map_prompt(prompt: str) -> dict[str, list[str] | str | bool]:
     rules: list[str] = []
     categories: list[str] = []
     predicate: str | None = None
+    profile: str | None = None
     init_rules = False
     variants = False
+
+    for candidate, patterns in PROFILE_PATTERNS:
+        if contains_any(text, patterns):
+            profile = candidate
+            break
 
     for rule, patterns in RULE_PATTERNS:
         if contains_any(text, patterns) and rule not in rules:
@@ -108,6 +161,7 @@ def map_prompt(prompt: str) -> dict[str, list[str] | str | bool]:
         variants = True
 
     return {
+        "profile": profile,
         "rules": rules,
         "categories": categories,
         "predicate": predicate,
@@ -121,6 +175,8 @@ def build_command(asset: Path, output_json: Path, mapping: dict[str, list[str] |
     script_path = skill_root / "scripts" / "run_sync_validation.py"
     command = [sys.executable, str(script_path), str(asset), "--output-json", str(output_json)]
 
+    if mapping["profile"]:
+        command.extend(["--profile", str(mapping["profile"])])
     for rule in mapping["rules"]:
         command.extend(["--rule", rule])
     for category in mapping["categories"]:
