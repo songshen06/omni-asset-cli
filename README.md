@@ -100,10 +100,9 @@ python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/min
 推荐命令示例：
 
 ```bash
-python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/boat_test/boat.usd \
-  --rule StageMetadataChecker \
-  --rule DefaultPrimChecker \
-  --rule MissingReferenceChecker
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
+  examples/boat_test/boat.usd \
+  --profile static
 ```
 
 ### 2. 可碰撞资产
@@ -133,11 +132,9 @@ python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/boa
 推荐命令示例：
 
 ```bash
-python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/boat_test/boat.usd \
-  --rule MissingReferenceChecker \
-  --rule ValidateTopologyChecker \
-  --rule ManifoldChecker \
-  --rule ZeroAreaFaceChecker
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
+  examples/boat_test/boat.usd \
+  --profile collidable
 ```
 
 ### 3. 可移动资产
@@ -167,11 +164,9 @@ python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/boa
 推荐命令示例：
 
 ```bash
-python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/boat_test/boat.usd \
-  --rule KindChecker \
-  --rule DefaultPrimChecker \
-  --rule MissingReferenceChecker \
-  --rule ValidateTopologyChecker
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
+  examples/boat_test/boat.usd \
+  --profile movable
 ```
 
 ## 当前项目状态
@@ -294,13 +289,13 @@ python omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py \
 
 ## 下一步建议
 
-如果继续往前做，最有价值的下一步是把三类资产场景真正做成 preset，例如：
+现在三类资产场景已经支持 preset：
 
 - `static`
 - `collidable`
 - `movable`
 
-这样就可以直接支持：
+可以直接这样运行：
 
 ```bash
 python omniverse-usd-asset-validator/scripts/run_sync_validation.py asset.usd --profile static
@@ -308,4 +303,17 @@ python omniverse-usd-asset-validator/scripts/run_sync_validation.py asset.usd --
 python omniverse-usd-asset-validator/scripts/run_sync_validation.py asset.usd --profile movable
 ```
 
-这会让“不同 asset 场景启用不同 rules”从 README 里的策略，进一步升级成脚本里的正式能力。
+运行后，终端摘要和 Markdown 报告都会附带：
+
+- 当前场景
+- 当前场景启用的规则
+- 为什么这些规则在该场景里重要
+
+如果你还想补充自定义规则，也可以叠加：
+
+```bash
+python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
+  asset.usd \
+  --profile movable \
+  --rule LayerSpecChecker
+```

@@ -144,6 +144,59 @@ LOW_IMPACT_RULES = {
     "IndexedPrimvarChecker",
 }
 
+PROFILE_PRESETS = {
+    "static": {
+        "label": "静态资产",
+        "description": "适用于展示、场景摆放、背景道具和非交互资产。",
+        "rules": [
+            "StageMetadataChecker",
+            "DefaultPrimChecker",
+            "MissingReferenceChecker",
+            "MaterialPathChecker",
+            "UsdDanglingMaterialBinding",
+            "UsdMaterialBindingApi",
+        ],
+        "reasons": [
+            "静态资产最先暴露的是入口定义、引用完整性和材质链路问题。",
+            "即使 mesh 还可预览，缺失引用或材质失效也会直接影响交付质量。",
+        ],
+    },
+    "collidable": {
+        "label": "可碰撞资产",
+        "description": "适用于碰撞体生成、障碍物和物理接触检测。",
+        "rules": [
+            "MissingReferenceChecker",
+            "ValidateTopologyChecker",
+            "ManifoldChecker",
+            "ZeroAreaFaceChecker",
+            "NormalsValidChecker",
+            "WeldChecker",
+            "ExtentsChecker",
+        ],
+        "reasons": [
+            "碰撞相关资产最怕 non-manifold、拓扑脏、零面积面和法线异常。",
+            "材质不完整不一定阻断碰撞，但 mesh 质量差会显著影响物理稳定性。",
+        ],
+    },
+    "movable": {
+        "label": "可移动资产",
+        "description": "适用于搬运、抓取、机器人交互和可配置物理行为的资产。",
+        "rules": [
+            "KindChecker",
+            "DefaultPrimChecker",
+            "StageMetadataChecker",
+            "MissingReferenceChecker",
+            "ValidateTopologyChecker",
+            "ManifoldChecker",
+            "NormalsValidChecker",
+        ],
+        "reasons": [
+            "可移动资产不仅要能显示，还要结构语义清晰、层级稳定、几何质量可靠。",
+            "对 Isaac Sim、SimReady 和机器人场景，KindChecker 的优先级会明显提高。",
+        ],
+    },
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -161,6 +214,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Path to the Markdown report. Defaults to the JSON path with a .md suffix.",
     )
+    parser.add_argument(
+        "--profile",
+        choices=sorted(PROFILE_PRESETS.keys()),
+        help="Apply a preset rule set for a target asset scenario.",
+    )
     parser.add_argument("--rule", action="append", default=[], help="Specific rule to enable")
     parser.add_argument("--category", action="append", default=[], help="Specific category to enable")
     parser.add_argument("--predicate", choices=["Any", "IsError", "IsFailure", "IsWarning", "HasRootLayer"])
@@ -169,11 +227,24 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def get_effective_rules(args: argparse.Namespace) -> list[str]:
+    effective_rules: list[str] = []
+
+    if args.profile:
+        effective_rules.extend(PROFILE_PRESETS[args.profile]["rules"])
+
+    for rule_name in args.rule:
+        if rule_name not in effective_rules:
+            effective_rules.append(rule_name)
+
+    return effective_rules
+
+
 def build_engine(args: argparse.Namespace) -> ValidationEngine:
     engine = ValidationEngine(init_rules=args.init_rules, variants=args.variants)
     registry = CategoryRuleRegistry()
 
-    for rule_name in args.rule:
+    for rule_name in get_effective_rules(args):
         rule = registry.find_rule(rule_name)
         if rule is None:
             raise ValueError(f"Unknown rule: {rule_name}")
@@ -219,6 +290,7 @@ def issue_to_dict(issue: Any) -> dict[str, Any]:
 
 
 def build_payload(args: argparse.Namespace, elapsed_seconds: float, issues: list[dict[str, Any]]) -> dict[str, Any]:
+    effective_rules = get_effective_rules(args)
     severity_counts = Counter(issue["severity"] or "UNKNOWN" for issue in issues)
     rule_counts = Counter(issue["rule"] for issue in issues if issue["rule"])
 
@@ -238,7 +310,9 @@ def build_payload(args: argparse.Namespace, elapsed_seconds: float, issues: list
         "asset": str(args.asset),
         "elapsed_seconds": round(elapsed_seconds, 3),
         "config": {
-            "rules": args.rule,
+            "profile": args.profile,
+            "rules": effective_rules,
+            "user_rules": args.rule,
             "categories": args.category,
             "predicate": args.predicate,
             "init_rules": args.init_rules,
@@ -251,6 +325,20 @@ def build_payload(args: argparse.Namespace, elapsed_seconds: float, issues: list
         },
         "issues": issues,
     }
+
+
+def build_profile_rationale(profile_name: str | None) -> list[str]:
+    if not profile_name:
+        return []
+
+    preset = PROFILE_PRESETS[profile_name]
+    lines = [
+        f"- 当前场景：`{preset['label']}`",
+        f"- 场景说明：{preset['description']}",
+        f"- 启用规则：{', '.join(f'`{rule}`' for rule in preset['rules'])}",
+    ]
+    lines.extend(f"- 为什么启用：{reason}" for reason in preset["reasons"])
+    return lines
 
 
 def infer_next_steps(payload: dict[str, Any]) -> list[str]:
@@ -381,6 +469,7 @@ def build_markdown_report(payload: dict[str, Any]) -> str:
     next_steps = infer_next_steps(payload)
     grouped_rules = collect_rules_by_priority(payload)
     assessments = asset_use_assessments(payload)
+    profile_rationale = build_profile_rationale(payload["config"].get("profile"))
 
     lines = [
         "# SimReady 资产可用性报告",
@@ -389,13 +478,22 @@ def build_markdown_report(payload: dict[str, Any]) -> str:
         f"检查耗时：`{payload['elapsed_seconds']}` 秒  ",
         f"总体结论：`{payload['status']}`",
         "",
+    ]
+    if profile_rationale:
+        lines.extend(["## 当前场景与启用规则", ""])
+        lines.extend(profile_rationale)
+        lines.extend([""])
+
+    lines.extend(
+        [
         "## 一句话结论",
         "",
         build_one_line_conclusion(payload),
         "",
         "## 按资产用途看影响",
         "",
-    ]
+        ]
+    )
     for assessment in assessments:
         lines.append(f"### {assessment['name']}")
         lines.append("")
@@ -454,6 +552,13 @@ def format_human_summary(payload: dict[str, Any]) -> str:
         f"IssueCount: {summary['issue_count']}",
         f"SeverityCounts: {json.dumps(summary['severity_counts'], ensure_ascii=False)}",
     ]
+    profile_name = payload["config"].get("profile")
+    if profile_name:
+        preset = PROFILE_PRESETS[profile_name]
+        lines.append(f"Profile: {profile_name} ({preset['label']})")
+        lines.append(f"ProfileRules: {', '.join(preset['rules'])}")
+        for reason in preset["reasons"]:
+            lines.append(f"ProfileReason: {reason}")
 
     issues = payload["issues"]
     if not issues:
@@ -491,7 +596,9 @@ def main() -> int:
             "asset": str(args.asset),
             "elapsed_seconds": round(elapsed, 3),
             "config": {
-                "rules": args.rule,
+                "profile": args.profile,
+                "rules": get_effective_rules(args),
+                "user_rules": args.rule,
                 "categories": args.category,
                 "predicate": args.predicate,
                 "init_rules": args.init_rules,
