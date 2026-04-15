@@ -116,6 +116,12 @@ def parse_args() -> argparse.Namespace:
         help="Path to the JSON output file",
     )
     parser.add_argument(
+        "--pxr-ar-default-search-path",
+        action="append",
+        default=[],
+        help="Additional resolver search path entries to pass through to run_sync_validation.py.",
+    )
+    parser.add_argument(
         "--execute",
         action="store_true",
         help="Execute the generated command instead of only printing it",
@@ -196,10 +202,14 @@ def main() -> int:
     mapping = map_prompt(args.prompt)
     command = build_command(args.asset, args.output_json, mapping)
 
+    for search_path in args.pxr_ar_default_search_path:
+        command.extend(["--pxr-ar-default-search-path", search_path])
+
     payload = {
         "asset": str(args.asset),
         "prompt": args.prompt,
         "mapping": mapping,
+        "pxr_ar_default_search_path": args.pxr_ar_default_search_path,
         "command": command,
     }
 

@@ -349,6 +349,11 @@ python omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py \
 python omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py \
   examples/boat_test/boat.usd \
   "帮我看这个机器人资产适不适合做抓取和移动"
+
+python omniverse-usd-asset-validator/scripts/map_prompt_to_validation.py \
+  /path/to/bottle.usd \
+  "帮我按静态资产场景检查这个 USD，并确认材质依赖是否完整" \
+  --pxr-ar-default-search-path /isaac-sim/kit/mdl/core/mdl
 ```
 
 ## 两类调用示例
