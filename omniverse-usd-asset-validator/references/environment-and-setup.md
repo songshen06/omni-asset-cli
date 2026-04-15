@@ -89,6 +89,16 @@ omni_asset_validate /path/to/asset.usda
 
 For Codex or another agent, run validator commands inside the same venv that contains the package.
 
+If the asset depends on MDL files or other external resolver-based material paths, you may also need to set
+`PXR_AR_DEFAULT_SEARCH_PATH` so the resolver can locate those dependencies correctly.
+
+Important:
+
+- `PXR_AR_DEFAULT_SEARCH_PATH` is not a single universal default value.
+- The correct value depends on the local installation, project layout, and runtime environment.
+- A path such as `/isaac-sim/kit/mdl/core/mdl` is only an example, not a guaranteed default on every machine.
+- If this path is missing, `MaterialPathChecker` and `MissingReferenceChecker` can report false positives for MDL-related assets.
+
 Examples:
 
 ```bash
@@ -99,6 +109,13 @@ or:
 
 ```bash
 .venv/bin/omni_asset_validate /path/to/asset.usda
+```
+
+Example with an explicit resolver search path:
+
+```bash
+export PXR_AR_DEFAULT_SEARCH_PATH="/isaac-sim/kit/mdl/core/mdl"
+python scripts/run_sync_validation.py /path/to/asset.usd --profile static
 ```
 
 The direct executable path is more deterministic for automation.
