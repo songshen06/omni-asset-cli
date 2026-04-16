@@ -379,9 +379,59 @@ def build_profile_rationale(profile_name: str | None) -> list[str]:
     return lines
 
 
+def build_static_profile_advice(payload: dict[str, Any]) -> list[str]:
+    if payload["config"].get("profile") != "static":
+        return []
+
+    rule_counts = payload["summary"]["rule_counts"]
+    lines: list[str] = []
+
+    if payload["status"] == "passed":
+        lines.append("- 总体建议：`可直接使用`。当前静态资产在入口、依赖和材质链路上没有发现明显阻塞。")
+    elif any(
+        rule_counts.get(name)
+        for name in ["MissingReferenceChecker", "MaterialPathChecker", "UsdDanglingMaterialBinding", "UsdMaterialBindingApi"]
+    ):
+        lines.append("- 总体建议：`能预览，但不建议直接交付`。请优先处理依赖和材质链路问题。")
+    else:
+        lines.append("- 总体建议：`建议先修复再使用`。请先处理入口定义和结构规范性问题。")
+
+    lines.append("- 修复顺序：先修复外部引用和材质依赖，再确认材质绑定，随后补齐 stage 元数据和 defaultPrim。")
+
+    if rule_counts.get("MissingReferenceChecker"):
+        lines.append("- `MissingReferenceChecker`：先确认外部依赖文件是否存在，以及路径是否可被当前环境解析。")
+    if rule_counts.get("MaterialPathChecker"):
+        lines.append("- `MaterialPathChecker`：先确认材质路径是否真实缺失；若命中 `.mdl`，优先检查 resolver search path 是否缺失。")
+    if rule_counts.get("UsdDanglingMaterialBinding"):
+        lines.append("- `UsdDanglingMaterialBinding`：检查绑定目标材质 prim 是否存在，避免预览与交付结果不一致。")
+    if rule_counts.get("UsdMaterialBindingApi"):
+        lines.append("- `UsdMaterialBindingApi`：检查材质绑定方式是否规范，避免跨工具链兼容性问题。")
+    if rule_counts.get("StageMetadataChecker"):
+        lines.append("- `StageMetadataChecker`：补齐 `upAxis`、`metersPerUnit` 等基础元数据，保证跨工具解释一致。")
+    if rule_counts.get("DefaultPrimChecker"):
+        lines.append("- `DefaultPrimChecker`：确保资产主入口明确，便于引用、加载和资产识别。")
+
+    if any(rule_counts.get(name) for name in ["MaterialPathChecker", "MissingReferenceChecker"]):
+        lines.append("- 特别提示：如果问题集中在 `.mdl` 路径，请先确认 `PXR_AR_DEFAULT_SEARCH_PATH` 是否完整；这不一定代表资产本身缺失材质。")
+
+    return lines
+
+
 def infer_next_steps(payload: dict[str, Any]) -> list[str]:
     rule_counts = payload["summary"]["rule_counts"]
     steps: list[str] = []
+
+    if payload["config"].get("profile") == "static":
+        if rule_counts.get("MissingReferenceChecker"):
+            steps.append("先确认外部依赖文件是否存在，以及当前环境是否能正确解析这些引用。")
+        if rule_counts.get("MaterialPathChecker"):
+            steps.append("若命中 `.mdl` 材质路径，请先补齐 resolver search path，再区分是真缺失还是环境误报。")
+        if rule_counts.get("UsdDanglingMaterialBinding") or rule_counts.get("UsdMaterialBindingApi"):
+            steps.append("在静态交付前，先修正材质绑定目标和绑定方式，避免预览与交付结果不一致。")
+        if rule_counts.get("StageMetadataChecker") or rule_counts.get("DefaultPrimChecker"):
+            steps.append("补齐 stage 元数据和 defaultPrim，保证静态资产入口明确且跨工具表现稳定。")
+        if steps:
+            return steps[:4]
 
     if rule_counts.get("MissingReferenceChecker"):
         steps.append("先修复缺失引用或外部依赖，再重新运行校验。")
@@ -508,6 +558,7 @@ def build_markdown_report(payload: dict[str, Any]) -> str:
     grouped_rules = collect_rules_by_priority(payload)
     assessments = asset_use_assessments(payload)
     profile_rationale = build_profile_rationale(payload["config"].get("profile"))
+    static_profile_advice = build_static_profile_advice(payload)
     search_paths = payload["config"].get("pxr_ar_default_search_path", [])
 
     lines = [
@@ -544,6 +595,11 @@ def build_markdown_report(payload: dict[str, Any]) -> str:
         lines.append("")
         lines.append(f"- 结论：`{assessment['status']}`")
         lines.append(f"- 原因：{assessment['reason']}")
+        lines.append("")
+
+    if static_profile_advice:
+        lines.extend(["## 静态资产交付建议", ""])
+        lines.extend(static_profile_advice)
         lines.append("")
 
     lines.extend(["## 问题按优先级分类", ""])
