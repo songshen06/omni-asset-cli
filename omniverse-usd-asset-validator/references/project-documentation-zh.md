@@ -17,11 +17,22 @@
 - 同步 Python API 验证脚本已落地
 - 异步 CLI 包装脚本已落地
 - 最小样例与真实资产的测试结果已记录
+- 已形成“人类界面 + Agent 界面”双层执行设计
+- 已形成三类资产场景的 profile 化规则策略
+- 已支持在报告中解释“为什么这个场景启用这些 rules”
+- 已支持通过 `PXR_AR_DEFAULT_SEARCH_PATH` 减少 MDL 路径误报
 
 当前推荐的正式执行路径为：
 
 - 对单个 USD 资产，优先使用同步 Python API 包装脚本
 - 不再将原始 `omni_asset_validate` CLI 作为主执行入口
+
+当前项目的阶段性判断为：
+
+- 已经不是“脚本雏形”
+- 已经具备 GitHub 展示、人工使用和 Agent 集成的基础形态
+- 当前最稳定的主链路已经明确
+- 当前可以进入“增强健壮性与批处理能力”的下一阶段
 
 ## 3. 技术方案
 
@@ -57,7 +68,29 @@ python -m pip install "omniverse-asset-validator[usd,numpy]"
 - 底层实现：`omni_asset_validate` CLI
 - 特点：用于观察 CLI 行为、记录 timeout 状态，不建议作为主执行路径
 
-### 3.3 自然语言处理策略
+### 3.3 两层执行界面
+
+当前项目不是单一入口，而是两个执行层面共用同一条核心校验主链路。
+
+人类界面：
+
+- 入口：`scripts/run_sync_validation.py`
+- 面向人群：技术美术、测试人员、实施人员、资产制作人员
+- 特点：显式指定资产路径、显式指定 `--profile`、直接读取 JSON 与 Markdown
+
+Agent 界面：
+
+- 入口：`scripts/map_prompt_to_validation.py`
+- 面向对象：Codex、ChatGPT Agent、自动化系统、工具链集成
+- 特点：从自然语言推断资产场景、自动映射到 `--profile` 或具体规则，并生成可执行命令
+
+设计原则：
+
+- 人类界面强调可控、可调试、可复测
+- Agent 界面强调可映射、可解释、可自动化
+- 两者最终统一收敛到 `run_sync_validation.py`
+
+### 3.4 自然语言处理策略
 
 Skill 的职责是将自然语言请求映射为具体验证动作。例如：
 
@@ -77,7 +110,50 @@ Skill 的职责是将自然语言请求映射为具体验证动作。例如：
 - 优先产出 JSON
 - 优先返回人类可读摘要
 
-## 4. 目录结构
+在当前版本中，自然语言处理还新增了场景识别能力：
+
+- “按静态资产场景检查”
+  -> `--profile static`
+
+- “按可碰撞资产场景检查”
+  -> `--profile collidable`
+
+- “看这个机器人资产适不适合抓取和移动”
+  -> `--profile movable`
+
+## 4. 当前执行流程
+
+### 4.1 总体流程图
+
+```mermaid
+flowchart TD
+    A[输入资产路径或自然语言请求] --> B{入口类型}
+    B -->|人类界面| C[run_sync_validation.py]
+    B -->|Agent 界面| D[map_prompt_to_validation.py]
+    D --> E[识别资产场景或规则意图]
+    E --> F[生成 --profile / --rule / --category]
+    F --> C
+    C --> G[可选追加 PXR_AR_DEFAULT_SEARCH_PATH]
+    G --> H[同步 Python API 执行验证]
+    H --> I[输出 JSON]
+    H --> J[输出终端摘要]
+    H --> K[输出 Markdown 报告]
+    K --> L[给出场景结论与启用规则原因]
+```
+
+### 4.2 三类资产场景流程图
+
+```mermaid
+flowchart LR
+    A[资产用途判断] --> B[static]
+    A --> C[collidable]
+    A --> D[movable]
+    B --> B1[关注入口/引用/材质链路]
+    C --> C1[关注拓扑/non-manifold/零面积面]
+    D --> D1[关注结构语义/入口/mesh稳定性]
+```
+
+## 5. 目录结构
 
 当前 skill 目录如下：
 
@@ -101,9 +177,9 @@ omniverse-usd-asset-validator/scripts/run_async_validation.py
 omniverse-usd-asset-validator/scripts/run_sync_validation.py
 ```
 
-## 5. 核心文件说明
+## 6. 核心文件说明
 
-### 5.1 `SKILL.md`
+### 6.1 `SKILL.md`
 
 用途：
 
@@ -112,14 +188,14 @@ omniverse-usd-asset-validator/scripts/run_sync_validation.py
 - 明确默认执行方式
 - 指明参考文档和脚本入口
 
-### 5.2 `agents/openai.yaml`
+### 6.2 `agents/openai.yaml`
 
 用途：
 
 - 提供 skill 的 UI 元数据
 - 定义展示名、短描述和默认提示词
 
-### 5.3 `references/environment-and-setup.md`
+### 6.3 `references/environment-and-setup.md`
 
 用途：
 
@@ -127,63 +203,63 @@ omniverse-usd-asset-validator/scripts/run_sync_validation.py
 - 说明安装方式
 - 说明 CLI 与环境检查方法
 
-### 5.4 `references/customer-setup-guide-zh.md`
+### 6.4 `references/customer-setup-guide-zh.md`
 
 用途：
 
 - 提供正式中文部署与使用说明
 - 面向客户或实施说明场景
 
-### 5.5 `references/cli-mapping.md`
+### 6.5 `references/cli-mapping.md`
 
 用途：
 
 - 说明自然语言意图与验证参数的映射关系
 - 作为 agent 选择 rule/category 的参考
 
-### 5.6 `references/cli-timeout-issue-zh.md`
+### 6.6 `references/cli-timeout-issue-zh.md`
 
 用途：
 
 - 记录 `omni_asset_validate` CLI 异步超时问题
 - 提供复现步骤与技术判断
 
-### 5.7 `references/test-result-boat.md`
+### 6.7 `references/test-result-boat.md`
 
 用途：
 
 - 记录真实资产 `boat.usd` 的测试结果
 - 包含 CLI timeout 现象与同步 API 复测结论
 
-### 5.8 `references/natural-language-examples-zh.md`
+### 6.8 `references/natural-language-examples-zh.md`
 
 用途：
 
 - 汇总自然语言调用示例
 - 用于提示词设计、测试样本和实施说明
 
-### 5.9 `references/human-operator-guide-zh.md`
+### 6.9 `references/human-operator-guide-zh.md`
 
 用途：
 
 - 作为人类操作者的统一入口文档
 - 说明推荐调用方式、状态字段、工作流和常见问题
 
-### 5.10 `references/kind-checker-explained-zh.md`
+### 6.10 `references/kind-checker-explained-zh.md`
 
 用途：
 
 - 解释 `KindChecker` 的通用含义
 - 说明它为什么在 Isaac Sim / SimReady 结构检查中重要
 
-### 5.11 `references/natural-language-to-args-zh.md`
+### 6.11 `references/natural-language-to-args-zh.md`
 
 用途：
 
 - 说明自然语言如何映射到 `run_sync_validation.py` 参数
 - 作为自然语言参数生成逻辑的参考依据
 
-### 5.12 `scripts/check_omniverse_asset_validator_env.py`
+### 6.12 `scripts/check_omniverse_asset_validator_env.py`
 
 用途：
 
@@ -191,7 +267,7 @@ omniverse-usd-asset-validator/scripts/run_sync_validation.py
 - 检查 CLI 是否可用
 - 检查包是否已安装
 
-### 5.13 `scripts/run_async_validation.py`
+### 6.13 `scripts/run_async_validation.py`
 
 用途：
 
@@ -204,7 +280,7 @@ omniverse-usd-asset-validator/scripts/run_sync_validation.py
 - 用于观察 CLI 行为
 - 不作为默认主执行路径
 
-### 5.14 `scripts/run_sync_validation.py`
+### 6.14 `scripts/run_sync_validation.py`
 
 用途：
 
@@ -213,26 +289,101 @@ omniverse-usd-asset-validator/scripts/run_sync_validation.py
 - 输出终端摘要
 - 输出 Markdown 人类解读报告
 - 区分 `execution_status` 与 `validation_status`
+- 支持三类资产场景 `profile`
+- 支持解释为什么当前场景启用这些规则
+- 支持通过 `--pxr-ar-default-search-path` 追加解析器搜索路径
 
 定位：
 
 - 当前项目的默认主执行路径
 
-### 5.15 `scripts/map_prompt_to_validation.py`
+### 6.15 `scripts/map_prompt_to_validation.py`
 
 用途：
 
 - 将自然语言请求映射为 `run_sync_validation.py` 参数
 - 输出结构化映射结果
 - 可选地直接执行映射后的验证命令
+- 支持从自然语言推断 `static / collidable / movable`
+- 支持将 `--pxr-ar-default-search-path` 透传给主验证脚本
 
 定位：
 
 - 当前项目的自然语言参数生成入口
 
-## 6. 已完成测试
+## 7. 当前规则策略
 
-### 6.1 CLI 路径测试
+### 7.1 `static`
+
+适用对象：
+
+- 展示资产
+- 背景道具
+- 静态摆放资产
+
+当前重点规则：
+
+- `StageMetadataChecker`
+- `DefaultPrimChecker`
+- `MissingReferenceChecker`
+- `MaterialPathChecker`
+- `UsdDanglingMaterialBinding`
+- `UsdMaterialBindingApi`
+
+原因：
+
+- 静态资产最先暴露的问题通常是入口定义、引用完整性和材质链路
+- 它不一定最怕 mesh 微小缺陷，但会非常受材质丢失和依赖缺失影响
+
+### 7.2 `collidable`
+
+适用对象：
+
+- 碰撞资产
+- 障碍物
+- 物理接触检测资产
+
+当前重点规则：
+
+- `MissingReferenceChecker`
+- `ValidateTopologyChecker`
+- `ManifoldChecker`
+- `ZeroAreaFaceChecker`
+- `NormalsValidChecker`
+- `WeldChecker`
+- `ExtentsChecker`
+
+原因：
+
+- 碰撞相关场景最怕 mesh 拓扑不稳定
+- non-manifold、零面积面、法线异常会直接影响碰撞与物理稳定性
+
+### 7.3 `movable`
+
+适用对象：
+
+- 可移动资产
+- 抓取资产
+- 机器人交互资产
+
+当前重点规则：
+
+- `KindChecker`
+- `DefaultPrimChecker`
+- `StageMetadataChecker`
+- `MissingReferenceChecker`
+- `ValidateTopologyChecker`
+- `ManifoldChecker`
+- `NormalsValidChecker`
+
+原因：
+
+- 可移动资产不仅要可显示，还要结构语义清晰、层级稳定、几何质量可靠
+- 对 Isaac Sim / SimReady / 机器人场景，`KindChecker` 的重要性会明显提高
+
+## 8. 已完成测试
+
+### 8.1 CLI 路径测试
 
 测试结论：
 
@@ -241,7 +392,7 @@ omniverse-usd-asset-validator/scripts/run_sync_validation.py
 - 日志可到 `99%`
 - 但命令不正常退出
 
-### 6.2 同步 Python API 路径测试
+### 8.2 同步 Python API 路径测试
 
 测试结论：
 
@@ -283,7 +434,7 @@ Markdown 报告能力：
   - `failed`: 有失败项
   - `blocked`: 未进入有效校验结果阶段
 
-### 6.3 自然语言映射脚本测试
+### 8.3 自然语言映射脚本测试
 
 测试样例：
 
@@ -296,7 +447,37 @@ Markdown 报告能力：
 
 该映射结果已通过真实执行验证最小样例，并成功输出同步校验结果。
 
-## 7. 当前推荐使用方式
+### 8.4 场景 profile 测试
+
+当前已完成以下能力验证：
+
+- `run_sync_validation.py` 已支持 `--profile static`
+- `run_sync_validation.py` 已支持 `--profile collidable`
+- `run_sync_validation.py` 已支持 `--profile movable`
+- 报告中已能解释当前场景启用了哪些规则，以及为什么启用
+
+### 8.5 MDL 搜索路径健壮性处理
+
+当前已完成以下能力验证：
+
+- `run_sync_validation.py` 已支持 `--pxr-ar-default-search-path`
+- 若环境中已有 `PXR_AR_DEFAULT_SEARCH_PATH`，脚本会在原值基础上追加，而不是覆盖
+- `map_prompt_to_validation.py` 已支持透传该参数
+- `check_omniverse_asset_validator_env.py` 已可显示当前环境中的 `PXR_AR_DEFAULT_SEARCH_PATH`
+
+针对 `bottle.usd` 这类资产，当前判断是：
+
+- 某些 `MaterialPathChecker` / `MissingReferenceChecker` 问题不一定说明资产本身损坏
+- 更可能是 MDL 解析依赖了特定的 resolver search path
+- 当补充 `PXR_AR_DEFAULT_SEARCH_PATH` 后，相关误报可以减少
+
+结论：
+
+- 这更像环境解析路径问题
+- 不应简单归类为“USD 不规范”
+- 但也说明该资产对外部环境存在隐式依赖，移植性较弱
+
+## 9. 当前推荐使用方式
 
 对单个资产，推荐命令如下：
 
@@ -321,7 +502,25 @@ python scripts/run_sync_validation.py examples/boat_test/boat.usd --output-json 
 - 人类可读终端摘要
 - Markdown 报告
 
-## 8. 当前项目判断
+人类界面示例：
+
+```bash
+python scripts/run_sync_validation.py /path/to/asset.usd --profile movable --output-json /tmp/asset_validation.json
+```
+
+Agent 界面示例：
+
+```bash
+python scripts/map_prompt_to_validation.py /path/to/asset.usd "帮我按可碰撞资产场景检查这个 USD" --execute
+```
+
+带 MDL 搜索路径的示例：
+
+```bash
+python scripts/run_sync_validation.py /path/to/bottle.usd --profile static --pxr-ar-default-search-path /isaac-sim/kit/mdl/core/mdl
+```
+
+## 10. 当前项目判断
 
 本项目当前已具备交付和继续扩展的基础条件。
 
@@ -330,12 +529,16 @@ python scripts/run_sync_validation.py examples/boat_test/boat.usd --output-json 
 - Skill 已完成并可被 agent 使用
 - CLI 原生异步路径存在可靠性问题
 - 同步 Python API 路径已验证可用
-- 当前方案适合继续扩展自然语言参数映射与更丰富的摘要生成能力
+- 当前方案已具备双层执行界面
+- 当前方案已具备场景化 profile 能力
+- 当前方案已补充 MDL 搜索路径健壮性处理
+- 当前方案适合继续扩展批量能力、环境自适应和更丰富的摘要生成能力
 
-## 9. 后续建议
+## 11. 后续建议
 
 建议下一阶段继续完善以下内容：
 
 1. 增加多资产或目录批量校验模式
 2. 增加更完整的中文业务摘要模板
-3. 如需对外反馈问题，可基于 `cli-timeout-issue-zh.md` 整理正式缺陷报告
+3. 增加对常见安装环境的 search path 自动探测能力
+4. 如需对外反馈问题，可基于 `cli-timeout-issue-zh.md` 整理正式缺陷报告
