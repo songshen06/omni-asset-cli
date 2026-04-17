@@ -8,6 +8,25 @@
 - 人类可读 Markdown 报告
 - 面向不同资产用途的结果解释
 
+## Quick Start
+
+最快跑通方式：
+
+```bash
+git clone git@github.com:songshen06/omni-asset-cli.git
+cd omni-asset-cli
+python3 -m pip install --no-build-isolation -e ".[validator]"
+omni-asset-cli env
+omni-asset-cli validate examples/minimal_scene.usda
+```
+
+如果你暂时不想安装 console script，也可以直接运行：
+
+```bash
+python3 omni_asset_cli.py env
+python3 omni_asset_cli.py validate examples/minimal_scene.usda
+```
+
 ## 安装成正式 CLI
 
 如果你希望给 agent、CI 或本地终端一个稳定命令入口，可以直接把这个仓库安装成可执行 CLI：
