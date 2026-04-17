@@ -12,7 +12,7 @@ Prefer the synchronous Python API wrapper in `scripts/run_sync_validation.py` fo
 
 Read [references/environment-and-setup.md](references/environment-and-setup.md) when the environment might be missing dependencies or when the user asks for install requirements. Read [references/cli-mapping.md](references/cli-mapping.md) when you need exact CLI option mapping or examples.
 Read [references/kind-checker-explained-zh.md](references/kind-checker-explained-zh.md) when the user is asking about Isaac Sim asset structure, SimReady hierarchy, component semantics, or why `KindChecker` matters.
-Use `scripts/run_sync_validation.py` as the default execution path for single assets. Use `scripts/map_prompt_to_validation.py` when the user gives a natural-language request and you need deterministic argument generation before validation. Use `scripts/run_async_validation.py` only when you explicitly want timeout-based operational monitoring of the CLI path.
+Use `omni-asset-cli` as the default human-and-agent entry point after installation. Prefer `omni-asset-cli validate` for single assets, `omni-asset-cli map` for deterministic natural-language mapping, and `omni-asset-cli validate-from-prompt` when the user wants mapping plus execution in one step. If the environment has not installed the console script yet, fall back to `python3 omni_asset_cli.py ...`. Use `scripts/run_async_validation.py` or `omni-asset-cli validate-async` only when you explicitly want timeout-based operational monitoring of the CLI path.
 
 ## Workflow
 
@@ -38,10 +38,10 @@ Use `scripts/run_sync_validation.py` as the default execution path for single as
    - "check Isaac Sim structure" -> `--rule KindChecker`
    Add `KindChecker` when the user explicitly asks about Isaac Sim asset structure, SimReady structure, hierarchy correctness, component semantics, or simulation-friendly hierarchy.
    Do not add `KindChecker` by default for every validation request.
-   Use `scripts/map_prompt_to_validation.py` if the mapping is non-trivial.
+   Use `omni-asset-cli map` if the mapping is non-trivial.
 
 4. Execute the smallest command that satisfies the request.
-   Prefer `python scripts/run_sync_validation.py` for single-asset validation.
+   Prefer `omni-asset-cli validate` for single-asset validation.
    Use direct Python API execution to avoid the async CLI timeout issue observed with `omni_asset_validate` in this environment.
    When a dedicated validator virtual environment exists, execute the script through that environment so Codex uses the correct interpreter and installed package set.
 
@@ -73,13 +73,13 @@ When the request is ambiguous, make the safest reasonable assumption:
 If the user asks for "all checks" or "standard validation", use the default wrapper:
 
 ```bash
-python scripts/run_sync_validation.py path/to/asset.usda
+omni-asset-cli validate path/to/asset.usda
 ```
 
 If the user asks for a narrow validation scope, disable default rules only when needed:
 
 ```bash
-python scripts/run_sync_validation.py path/to/asset.usda --rule StageMetadataChecker
+omni-asset-cli validate path/to/asset.usda --rule StageMetadataChecker
 ```
 
 ## Response Pattern
@@ -98,7 +98,7 @@ If the command cannot run because the environment is missing, switch to setup gu
 If the user needs structured output, use this pattern:
 
 ```bash
-python scripts/run_sync_validation.py path/to/asset.usd --output-json /tmp/asset_validation.json
+omni-asset-cli validate path/to/asset.usd --output-json /tmp/asset_validation.json
 ```
 
 Then:
@@ -123,13 +123,13 @@ python -m pip install "omniverse-asset-validator[usd,numpy]"
 For agents such as Codex, ensure every validator command runs inside that environment, for example:
 
 ```bash
-source .venv/bin/activate && python scripts/run_sync_validation.py asset.usda
+source .venv/bin/activate && omni-asset-cli validate asset.usda
 ```
 
 or by calling the venv executable directly:
 
 ```bash
-.venv/bin/python scripts/run_sync_validation.py asset.usda
+.venv/bin/omni-asset-cli validate asset.usda
 ```
 
 ## Long-Running Validation Policy
@@ -139,8 +139,8 @@ For single-asset validation, prefer the synchronous wrapper first because it has
 
 Default policy:
 
-- default structured validation: `scripts/run_sync_validation.py`
-- CLI timeout characterization: `scripts/run_async_validation.py`
+- default structured validation: `omni-asset-cli validate`
+- CLI timeout characterization: `omni-asset-cli validate-async`
 - if CLI async execution still does not complete, return an operational status and recommend avoiding the CLI path
 
 Operational result states:
@@ -156,7 +156,7 @@ User: "帮我检查这个 USD 资源有没有贴图和引用问题：assets/chai
 Agent action:
 
 ```bash
-python scripts/run_sync_validation.py assets/chair.usda
+omni-asset-cli validate assets/chair.usda
 ```
 
 User: "检查这个目录，只看材质类问题，并导出 csv"
@@ -164,7 +164,7 @@ User: "检查这个目录，只看材质类问题，并导出 csv"
 Agent action:
 
 ```bash
-python scripts/run_sync_validation.py assets/chair.usda --category Material --output-json /tmp/material-results.json
+omni-asset-cli validate assets/chair.usda --category Material --output-json /tmp/material-results.json
 ```
 
 User: "只跑 StageMetadataChecker，不要默认规则"
@@ -172,5 +172,5 @@ User: "只跑 StageMetadataChecker，不要默认规则"
 Agent action:
 
 ```bash
-python scripts/run_sync_validation.py asset.usda --rule StageMetadataChecker
+omni-asset-cli validate asset.usda --rule StageMetadataChecker
 ```

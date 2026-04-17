@@ -31,8 +31,8 @@ RULE_PATTERNS = [
             r"仿真层级",
         ],
     ),
-    ("MissingReferenceChecker", [r"missing reference", r"丢失引用", r"引用缺失", r"引用", r"dependency", r"依赖"]),
-    ("TextureChecker", [r"texture", r"贴图"]),
+    ("MissingReferenceChecker", [r"missing reference", r"missing references", r"references", r"丢失引用", r"引用缺失", r"引用", r"dependency", r"dependencies", r"依赖"]),
+    ("TextureChecker", [r"texture", r"textures", r"贴图"]),
     ("ValidateTopologyChecker", [r"topology", r"拓扑"]),
     ("NormalsValidChecker", [r"normals", r"法线"]),
     ("ZeroAreaFaceChecker", [r"zero-area", r"zero area", r"零面积"]),
@@ -165,6 +165,9 @@ def map_prompt(prompt: str) -> dict[str, list[str] | str | bool]:
 
     if contains_any(text, [r"variants", r"variant", r"变体"]):
         variants = True
+
+    if not profile and not rules and not categories and predicate is None:
+        init_rules = True
 
     return {
         "profile": profile,

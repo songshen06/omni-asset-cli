@@ -8,7 +8,36 @@
 - 人类可读 Markdown 报告
 - 面向不同资产用途的结果解释
 
+## 安装成正式 CLI
+
+如果你希望给 agent、CI 或本地终端一个稳定命令入口，可以直接把这个仓库安装成可执行 CLI：
+
+```bash
+python3 -m pip install -e .
+```
+
+如果还要一并安装 NVIDIA validator 依赖：
+
+```bash
+python3 -m pip install -e ".[validator]"
+```
+
+如果你在离线环境，或者系统里的 `pip/setuptools` 比较旧，优先这样安装：
+
+```bash
+python3 -m pip install --no-build-isolation -e .
+```
+
+安装完成后可直接使用：
+
+```bash
+omni-asset-cli env
+omni-asset-cli validate examples/minimal_scene.usda
+omni-asset-cli validate-from-prompt examples/minimal_scene.usda "检查这个资产"
+```
+
 这个项目当前更偏向 **Agent / 自动化工具接入**，而不是单纯的人手命令集合。
+现在已经提供统一入口 `omni_asset_cli.py`，底层仍复用现有脚本。
 
 ## 项目目标
 
@@ -85,7 +114,13 @@
 当前推荐主路径：
 
 ```bash
-python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/minimal_scene.usda
+omni-asset-cli validate examples/minimal_scene.usda
+```
+
+如果当前环境还没有安装 console script，也可以继续使用：
+
+```bash
+python3 omni_asset_cli.py validate examples/minimal_scene.usda
 ```
 
 不再推荐把原始 `omni_asset_validate` CLI 作为默认主入口。
@@ -148,9 +183,7 @@ python omniverse-usd-asset-validator/scripts/run_sync_validation.py examples/min
 推荐命令示例：
 
 ```bash
-python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
-  examples/boat_test/boat.usd \
-  --profile static
+python omni_asset_cli.py validate examples/boat_test/boat.usd --profile static
 ```
 
 ### 2. 可碰撞资产
@@ -180,9 +213,7 @@ python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
 推荐命令示例：
 
 ```bash
-python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
-  examples/boat_test/boat.usd \
-  --profile collidable
+python omni_asset_cli.py validate examples/boat_test/boat.usd --profile collidable
 ```
 
 ### 3. 可移动资产
@@ -212,9 +243,7 @@ python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
 推荐命令示例：
 
 ```bash
-python omniverse-usd-asset-validator/scripts/run_sync_validation.py \
-  examples/boat_test/boat.usd \
-  --profile movable
+python omni_asset_cli.py validate examples/boat_test/boat.usd --profile movable
 ```
 
 ## 当前项目状态
@@ -250,6 +279,24 @@ README.md
 - `examples/`：最小样例和真实测试样例
 
 ## 核心脚本
+
+### `omni_asset_cli.py`
+
+统一 CLI 入口，适合人类和 Agent 直接调用。当前提供：
+
+- `env`
+- `validate`
+- `map`
+- `validate-from-prompt`
+- `validate-async`
+
+推荐给 agent 的标准调用方式：
+
+```bash
+omni-asset-cli validate path/to/asset.usd --profile static
+omni-asset-cli map path/to/asset.usd "检查引用和贴图"
+omni-asset-cli validate-from-prompt path/to/asset.usd "检查 Isaac Sim 结构"
+```
 
 ### `omniverse-usd-asset-validator/scripts/check_omniverse_asset_validator_env.py`
 

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omni-asset-cli"
+version = "0.1.0"
+description = "Unified CLI for validating OpenUSD assets with NVIDIA Omniverse Asset Validator"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "OpenAI Codex" }
+]
+license = { text = "Proprietary" }
+keywords = ["usd", "openusd", "omniverse", "asset-validator", "cli"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.optional-dependencies]
+validator = [
+  "omniverse-asset-validator[usd,numpy]",
+]
+
+[project.scripts]
+omni-asset-cli = "omni_asset_cli:main"
+
+[tool.setuptools]
+py-modules = ["omni_asset_cli"]

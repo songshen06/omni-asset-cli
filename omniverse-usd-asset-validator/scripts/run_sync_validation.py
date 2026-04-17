@@ -270,10 +270,14 @@ def get_effective_rules(args: argparse.Namespace) -> list[str]:
     return effective_rules
 
 
+def should_enable_default_rules(args: argparse.Namespace) -> bool:
+    return args.init_rules or not (args.profile or args.rule or args.category)
+
+
 def build_engine(args: argparse.Namespace) -> Any:
     from omni.asset_validator import CategoryRuleRegistry, ValidationEngine
 
-    engine = ValidationEngine(init_rules=args.init_rules, variants=args.variants)
+    engine = ValidationEngine(init_rules=should_enable_default_rules(args), variants=args.variants)
     registry = CategoryRuleRegistry()
 
     for rule_name in get_effective_rules(args):
@@ -352,7 +356,7 @@ def build_payload(
             "user_rules": args.rule,
             "categories": args.category,
             "predicate": args.predicate,
-            "init_rules": args.init_rules,
+            "init_rules": should_enable_default_rules(args),
             "variants": args.variants,
             "pxr_ar_default_search_path": search_paths,
         },
@@ -706,7 +710,7 @@ def main() -> int:
                 "user_rules": args.rule,
                 "categories": args.category,
                 "predicate": args.predicate,
-                "init_rules": args.init_rules,
+                "init_rules": should_enable_default_rules(args),
                 "variants": args.variants,
                 "pxr_ar_default_search_path": search_paths,
             },
