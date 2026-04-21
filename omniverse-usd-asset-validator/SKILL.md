@@ -103,7 +103,6 @@ Operational states:
 
 - `references/environment-and-setup.md`
 - `references/cli-mapping.md`
-- `references/human-operator-guide-zh.md`
-- `references/natural-language-to-args-zh.md`
-- `references/kind-checker-explained-zh.md`
-
+- `references/human-operator-guide.md`
+- `references/natural-language-to-args.md`
+- `references/kind-checker-explained.md`
