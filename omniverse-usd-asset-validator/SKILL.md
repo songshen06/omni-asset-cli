@@ -1,176 +1,134 @@
 ---
 name: omniverse-usd-asset-validator
-description: Validate OpenUSD or USDZ assets with NVIDIA Omniverse Asset Validator from natural-language requests. Use when the user wants to check a `.usd`, `.usda`, `.usdc`, `.usdz`, or a folder of USD assets for compliance issues, missing references, metadata problems, texture issues, category/rule-specific validation, CSV export, or auto-fix guidance with the `omni_asset_validate` CLI.
+description: Validate OpenUSD or USDZ assets with NVIDIA Omniverse Asset Validator. Use this skill when the user wants to check a USD asset, map natural-language validation requests into deterministic arguments, or explain validation results in Chinese and English.
 ---
 
 # Omniverse USD Asset Validator
 
-Validate USD assets by translating natural-language requests into concrete validator executions, then explain the results in user language.
+使用这个 skill 来校验 USD 资产、把自然语言映射成确定性参数，并输出适合人类和 agent 消费的结果。  
+Use this skill to validate USD assets, map natural-language requests into deterministic arguments, and return results suitable for both humans and agents.
 
-This skill targets the standalone Python package workflow, not the Kit UI extension workflow. Treat `omniverse-asset-validator` as an independent Python library with its own CLI entry point, `omni_asset_validate`.
-Prefer the synchronous Python API wrapper in `scripts/run_sync_validation.py` for single-asset validation because the packaged CLI async path can hang in this environment.
+## 默认入口 / Default Entry Point
 
-Read [references/environment-and-setup.md](references/environment-and-setup.md) when the environment might be missing dependencies or when the user asks for install requirements. Read [references/cli-mapping.md](references/cli-mapping.md) when you need exact CLI option mapping or examples.
-Read [references/kind-checker-explained-zh.md](references/kind-checker-explained-zh.md) when the user is asking about Isaac Sim asset structure, SimReady hierarchy, component semantics, or why `KindChecker` matters.
-Use `omni-asset-cli` as the default human-and-agent entry point after installation. Prefer `omni-asset-cli validate` for single assets, `omni-asset-cli map` for deterministic natural-language mapping, and `omni-asset-cli validate-from-prompt` when the user wants mapping plus execution in one step. If the environment has not installed the console script yet, fall back to `python3 omni_asset_cli.py ...`. Use `scripts/run_async_validation.py` or `omni-asset-cli validate-async` only when you explicitly want timeout-based operational monitoring of the CLI path.
+优先使用已安装的 `omni-asset-cli`。  
+Prefer the installed `omni-asset-cli`.
 
-## Workflow
-
-1. Identify the asset target.
-   Accept a single file or a folder. Prefer absolute or workspace-relative paths in the final command.
-
-2. Confirm the runtime before validating.
-   If the environment is unknown, run `scripts/check_omniverse_asset_validator_env.py` first.
-   If the command is unavailable, give setup guidance from `references/environment-and-setup.md`.
-   Prefer a dedicated virtual environment and run the CLI from that environment.
-
-3. Convert the user's request into CLI options.
-   Map intent to validation arguments conservatively:
-   - "check this asset" -> no extra flags
-   - "fix what can be fixed" -> `--fix`
-   - "only show errors" -> `--predicate IsError`
-   - "warnings only" -> `--predicate IsWarning`
-   - "only check materials" -> `--category Material`
-   - "only run StageMetadataChecker" -> `--rule StageMetadataChecker`
-   - "check topology" -> `--rule ValidateTopologyChecker`
-   - "check geometry" -> `--category Geometry`
-   - "check references" -> `--rule MissingReferenceChecker`
-   - "check Isaac Sim structure" -> `--rule KindChecker`
-   Add `KindChecker` when the user explicitly asks about Isaac Sim asset structure, SimReady structure, hierarchy correctness, component semantics, or simulation-friendly hierarchy.
-   Do not add `KindChecker` by default for every validation request.
-   Use `omni-asset-cli map` if the mapping is non-trivial.
-
-4. Execute the smallest command that satisfies the request.
-   Prefer `omni-asset-cli validate` for single-asset validation.
-   Use direct Python API execution to avoid the async CLI timeout issue observed with `omni_asset_validate` in this environment.
-   When a dedicated validator virtual environment exists, execute the script through that environment so Codex uses the correct interpreter and installed package set.
-
-5. Summarize results for the user.
-   Report:
-   - asset path
-   - command used
-   - issue counts or notable failures
-   - whether fixes were applied
-   - next actions if validation failed
-
-6. Use asynchronous handling for long-running assets.
-   When validation does not complete quickly, switch to an asynchronous pattern:
-   - write results to `--json-output`
-   - run with a generous timeout
-   - poll for completion instead of waiting in a short foreground call
-   - if the process times out, report `validation started but did not complete in the allowed window`
-
-## Natural-Language Handling
-
-Treat the user's request as intent, not as shell text. Do not pass arbitrary natural-language fragments directly into the command.
-
-When the request is ambiguous, make the safest reasonable assumption:
-   - default to read-only validation
-   - do not enable `--fix` unless the user asks
-   - keep default rules enabled unless the user asks for specific rules/categories
-   - keep variants enabled unless the user asks for a faster or narrower check
-
-If the user asks for "all checks" or "standard validation", use the default wrapper:
+如果当前环境还没有安装 console script，则回退到：  
+If the console script is not installed yet, fall back to:
 
 ```bash
-omni-asset-cli validate path/to/asset.usda
+python3 omni_asset_cli.py ...
 ```
 
-If the user asks for a narrow validation scope, disable default rules only when needed:
+## 工作流 / Workflow
+
+1. 确定目标资产。  
+   Identify the target asset.
+2. 先检查环境，尤其是 Python、`omniverse-asset-validator` 包和 `omni_asset_validate` 是否可用。  
+   Check the environment first, especially Python, the `omniverse-asset-validator` package, and `omni_asset_validate`.
+3. 如果用户是自然语言请求，先执行 `map` 或 `validate-from-prompt`。  
+   If the user starts from natural language, use `map` or `validate-from-prompt`.
+4. 对单资产默认使用同步路径 `validate`。  
+   Use synchronous `validate` by default for single assets.
+5. 只有在明确要观察 CLI timeout 行为时才使用 `validate-async`。  
+   Use `validate-async` only when you explicitly need to observe CLI timeout behavior.
+
+## 推荐命令 / Recommended Commands
+
+检查环境：
+Check the environment:
 
 ```bash
-omni-asset-cli validate path/to/asset.usda --rule StageMetadataChecker
+omni-asset-cli env
 ```
 
-## Response Pattern
-
-Use this structure when replying after validation:
-
-```text
-Target: <path>
-Command: <exact command>
-Result: <pass/fail plus important issues>
-Next step: <fix, rerun, or environment action>
-```
-
-If the command cannot run because the environment is missing, switch to setup guidance and provide the exact prerequisite gap.
-
-If the user needs structured output, use this pattern:
+默认校验：
+Default validation:
 
 ```bash
-omni-asset-cli validate path/to/asset.usd --output-json /tmp/asset_validation.json
+omni-asset-cli validate path/to/asset.usd
 ```
 
-Then:
-
-1. Let the wrapper produce JSON directly from the synchronous API result.
-2. Parse and summarize the JSON.
-3. Use the async wrapper only when you intentionally need to characterize CLI timeout behavior.
-
-## Environment Contract
-
-Recommend Python 3.10 for the most conservative setup. Accept Python 3.10 to 3.12 when the user already has a supported interpreter.
-
-Prefer this deployment shape:
+按资产场景校验：
+Validate with a profile:
 
 ```bash
-python3.10 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install "omniverse-asset-validator[usd,numpy]"
+omni-asset-cli validate path/to/asset.usd --profile static
+omni-asset-cli validate path/to/asset.usd --profile collidable
+omni-asset-cli validate path/to/asset.usd --profile movable
 ```
 
-For agents such as Codex, ensure every validator command runs inside that environment, for example:
+自然语言映射：
+Natural-language mapping:
 
 ```bash
-source .venv/bin/activate && omni-asset-cli validate asset.usda
+omni-asset-cli map path/to/asset.usd "check references"
+omni-asset-cli map path/to/asset.usd "检查 Isaac Sim 结构"
 ```
 
-or by calling the venv executable directly:
+自然语言直接执行：
+Map and execute directly:
 
 ```bash
-.venv/bin/omni-asset-cli validate asset.usda
+omni-asset-cli validate-from-prompt path/to/asset.usd "帮我按静态资产场景检查"
 ```
 
-## Long-Running Validation Policy
+## 自然语言处理约定 / Natural-Language Handling Rules
 
-For production assets, especially packaged or layered SimReady assets, do not assume validation completes within seconds.
-For single-asset validation, prefer the synchronous wrapper first because it has been verified to return on both minimal and real assets.
+- 默认只做只读校验，不自动加 `--fix`。  
+  Default to read-only validation and do not add `--fix` unless asked.
+- 如果用户没有明确缩小范围，保留默认规则。  
+  Keep the default rules unless the user explicitly narrows the scope.
+- 如果 prompt 没命中特定规则，回退到标准校验。  
+  If the prompt does not match a specific rule, fall back to standard validation.
+- 只有用户明确提到 Isaac Sim、SimReady、层级或组件语义时，优先考虑 `KindChecker`。  
+  Prefer `KindChecker` only when the user explicitly asks about Isaac Sim, SimReady, hierarchy, or component semantics.
 
-Default policy:
+## 响应格式 / Response Pattern
 
-- default structured validation: `omni-asset-cli validate`
-- CLI timeout characterization: `omni-asset-cli validate-async`
-- if CLI async execution still does not complete, return an operational status and recommend avoiding the CLI path
+建议输出以下信息：
+Include the following in the response:
 
-Operational result states:
+- `Target`
+- `Command`
+- `Result`
+- `Next step`
 
-- `completed`: validator finished and results were parsed
-- `timed_out`: validator started but did not finish inside the allowed window
-- `blocked`: environment or command invocation failed before validation started
+如果生成了 JSON 或 Markdown，也说明输出路径。  
+If JSON or Markdown output was produced, mention the output path as well.
 
-## Examples
+## 环境约定 / Environment Contract
 
-User: "帮我检查这个 USD 资源有没有贴图和引用问题：assets/chair.usda"
-
-Agent action:
+- 推荐 Python 3.10。  
+  Python 3.10 is the recommended baseline.
+- 可接受 3.10 到 3.12。  
+  Python 3.10 to 3.12 is acceptable.
+- 推荐安装方式：  
+  Recommended install shape:
 
 ```bash
-omni-asset-cli validate assets/chair.usda
+python3 -m pip install --no-build-isolation -e ".[validator]"
 ```
 
-User: "检查这个目录，只看材质类问题，并导出 csv"
+## 长耗时策略 / Long-Running Policy
 
-Agent action:
+- 默认 structured validation：`omni-asset-cli validate`  
+  Default structured validation: `omni-asset-cli validate`
+- CLI timeout 观测：`omni-asset-cli validate-async`  
+  CLI timeout observation: `omni-asset-cli validate-async`
 
-```bash
-omni-asset-cli validate assets/chair.usda --category Material --output-json /tmp/material-results.json
-```
+运行状态可分为：
+Operational states:
 
-User: "只跑 StageMetadataChecker，不要默认规则"
+- `completed`
+- `timed_out`
+- `blocked`
 
-Agent action:
+## 文档入口 / References
 
-```bash
-omni-asset-cli validate asset.usda --rule StageMetadataChecker
-```
+- `references/environment-and-setup.md`
+- `references/cli-mapping.md`
+- `references/human-operator-guide-zh.md`
+- `references/natural-language-to-args-zh.md`
+- `references/kind-checker-explained-zh.md`
+

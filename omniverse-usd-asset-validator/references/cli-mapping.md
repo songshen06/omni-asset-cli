@@ -1,94 +1,67 @@
-# CLI Mapping
+# CLI Mapping / CLI 参数映射
 
-Use this reference to translate user intent into `omni_asset_validate` arguments.
+这个文档用于把用户意图映射到 `omni-asset-cli` 或底层 validator 参数。  
+Use this document to map user intent into `omni-asset-cli` or underlying validator arguments.
 
-Primary documentation:
+## 主命令形态 / Core Command Shape
 
-- https://docs.omniverse.nvidia.com/kit/docs/asset-validator/latest/source/python/docs/cli.html
+```bash
+omni-asset-cli validate [options] ASSET
+omni-asset-cli map ASSET "PROMPT"
+omni-asset-cli validate-from-prompt ASSET "PROMPT"
+```
 
-## Core Command Shape
+底层异步 CLI 路径仍然存在：  
+The underlying asynchronous CLI path still exists:
 
 ```bash
 omni_asset_validate [options] ASSET
 ```
 
-`ASSET` can be a single file or a folder.
+## 常见映射 / Common Mapping
 
-## Natural Language to Flag Mapping
+| 中文意图 | English intent | 推荐命令 / Recommended command |
+| --- | --- | --- |
+| 检查这个资产 | check this asset | `omni-asset-cli validate <asset>` |
+| 检查这个目录 | check this folder | `omni-asset-cli validate-async <folder>` |
+| 只检查引用 | check references only | `omni-asset-cli validate <asset> --rule MissingReferenceChecker` |
+| 只检查材质 | check materials only | `omni-asset-cli validate <asset> --category Material` |
+| 只看错误 | show errors only | `omni-asset-cli validate <asset> --predicate IsError` |
+| 作为静态资产检查 | validate as a static asset | `omni-asset-cli validate <asset> --profile static` |
+| 作为可碰撞资产检查 | validate as a collidable asset | `omni-asset-cli validate <asset> --profile collidable` |
+| 作为可移动资产检查 | validate as a movable asset | `omni-asset-cli validate <asset> --profile movable` |
+| 把自然语言转成参数 | map this request into args | `omni-asset-cli map <asset> "<prompt>"` |
+| 直接从自然语言执行 | map and execute directly | `omni-asset-cli validate-from-prompt <asset> "<prompt>"` |
 
-- "check this asset" -> `omni_asset_validate <asset>`
-- "check this folder recursively" -> `omni_asset_validate <folder>`
-- "explain the args" -> `--explain`
-- "show version" -> `--version`
-- "run only this rule" -> `--no-init-rules --rule <RULE>`
-- "disable this rule" -> `--disable-rule <RULE>`
-- "only this category" -> `--category <CATEGORY>`
-- "exclude this category" -> `--disable-category <CATEGORY>`
-- "require this requirement profile" -> `--requirement <REQUIREMENT>`
-- "target this capability" -> `--capability <CAPABILITY>`
-- "enable this feature" -> `--feature <FEATURE>`
-- "disable this feature" -> `--disable-feature <FEATURE>`
-- "override a parameter" -> `--parameter NAME=VALUE`
-- "try automatic fixes" -> `--fix`
-- "only show errors/failures/warnings" -> `--predicate IsError|IsFailure|IsWarning`
-- "do not preload default rules" -> `--no-init-rules`
-- "skip variants for speed" -> `--no-variants`
-- "save a csv report" -> `--csv-output <csv-file>`
+## 安全默认值 / Safe Defaults
 
-## Safe Defaults
+- 默认不加 `--fix`。  
+  Do not add `--fix` unless the user explicitly asks.
+- 默认保留 init rules。  
+  Keep init rules enabled by default.
+- 默认保留 variants。  
+  Keep variants enabled by default.
+- 如果没有命中特定规则，回退到标准校验。  
+  Fall back to standard validation if no specific rule was matched.
 
-- Default to no `--fix`
-- Default to keeping init rules enabled
-- Default to keeping variants enabled
-- Default to no predicate filter
+## 常见规则名 / Common Rule Names
 
-## Example Commands
-
-Validate a file:
-
-```bash
-omni_asset_validate asset.usda
-```
-
-Validate a directory:
-
-```bash
-omni_asset_validate ./assets
-```
-
-Validate and export CSV:
-
-```bash
-omni_asset_validate --csv-output results.csv asset.usda
-```
-
-Apply fixes when the user explicitly asked:
-
-```bash
-omni_asset_validate --fix asset.usda
-```
-
-Run a single rule:
-
-```bash
-omni_asset_validate --no-init-rules --rule StageMetadataChecker asset.usda
-```
-
-Limit to a category:
-
-```bash
-omni_asset_validate --category Material asset.usda
-```
-
-## Common Rule Names Mentioned in the CLI Docs
-
-- `UsdzPackageValidator`
-- `MissingReferenceChecker`
 - `StageMetadataChecker`
+- `DefaultPrimChecker`
+- `MissingReferenceChecker`
 - `TextureChecker`
-- `PrimEncapsulationChecker`
-- `NormalMapTextureChecker`
 - `KindChecker`
+- `ValidateTopologyChecker`
+- `NormalsValidChecker`
 - `ExtentsChecker`
 
-If the requested rule or category is uncertain, prefer running `omni_asset_validate --explain` or `--help` locally instead of guessing.
+## 示例 / Examples
+
+```bash
+omni-asset-cli validate asset.usda
+omni-asset-cli validate asset.usda --profile static
+omni-asset-cli validate asset.usda --category Material
+omni-asset-cli map asset.usda "check references and textures"
+omni-asset-cli validate-from-prompt asset.usda "检查这个机器人资产适不适合抓取"
+```
+
