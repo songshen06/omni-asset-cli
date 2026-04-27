@@ -26,6 +26,8 @@ omni_asset_validate [options] ASSET
 | --- | --- |
 | 检查这个资产 | `omni-asset-cli validate <asset>` |
 | 检查这个目录 | `omni-asset-cli validate-async <folder>` |
+| 按家具/摆件 Stage 1 检查 | `omni-asset-cli validate <asset> --profile stage1-furniture` |
+| 运行 Stage 1 顶部掉落测试 | `omni-asset-cli physics-hit-test <asset> --template-scene examples/mini_test.usda --replace-prim /World/roomScene/colliders/table --hit-mode top-drop --size-policy preserve` |
 | 只检查引用 | `omni-asset-cli validate <asset> --rule MissingReferenceChecker` |
 | 只检查材质 | `omni-asset-cli validate <asset> --category Material` |
 | 只看错误 | `omni-asset-cli validate <asset> --predicate IsError` |
@@ -46,10 +48,12 @@ omni_asset_validate [options] ASSET
 
 ```bash
 omni-asset-cli validate asset.usda
+omni-asset-cli validate asset.usda --profile stage1-furniture
 omni-asset-cli validate asset.usda --profile static
 omni-asset-cli validate asset.usda --category Material
+omni-asset-cli map asset.usda "按家具和摆件 Stage 1 检查"
 omni-asset-cli map asset.usda "检查引用和贴图"
-omni-asset-cli validate-from-prompt asset.usda "帮我判断这个机器人资产是否适合抓取"
+omni-asset-cli validate-from-prompt asset.usda "validate this as static furniture and decor props"
 ```
 
 ## English
@@ -78,6 +82,8 @@ omni_asset_validate [options] ASSET
 | --- | --- |
 | check this asset | `omni-asset-cli validate <asset>` |
 | check this folder | `omni-asset-cli validate-async <folder>` |
+| validate Stage 1 furniture/props | `omni-asset-cli validate <asset> --profile stage1-furniture` |
+| run Stage 1 top-drop hit test | `omni-asset-cli physics-hit-test <asset> --template-scene examples/mini_test.usda --replace-prim /World/roomScene/colliders/table --hit-mode top-drop --size-policy preserve` |
 | check references only | `omni-asset-cli validate <asset> --rule MissingReferenceChecker` |
 | check materials only | `omni-asset-cli validate <asset> --category Material` |
 | show errors only | `omni-asset-cli validate <asset> --predicate IsError` |
@@ -98,9 +104,10 @@ omni_asset_validate [options] ASSET
 
 ```bash
 omni-asset-cli validate asset.usda
+omni-asset-cli validate asset.usda --profile stage1-furniture
 omni-asset-cli validate asset.usda --profile static
 omni-asset-cli validate asset.usda --category Material
+omni-asset-cli map asset.usda "validate this as static furniture and decor props"
 omni-asset-cli map asset.usda "check references and textures"
-omni-asset-cli validate-from-prompt asset.usda "validate this robot asset for grasping"
+omni-asset-cli validate-from-prompt asset.usda "validate this as static furniture and decor props"
 ```
-

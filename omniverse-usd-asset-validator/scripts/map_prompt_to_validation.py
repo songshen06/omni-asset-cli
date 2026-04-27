@@ -57,6 +57,32 @@ PREDICATE_PATTERNS = [
 
 PROFILE_PATTERNS = [
     (
+        "stage1-furniture",
+        [
+            r"stage\s*1",
+            r"stage1",
+            r"stage one",
+            r"static furniture",
+            r"furniture",
+            r"furniture asset",
+            r"decor prop",
+            r"decor props",
+            r"decorative prop",
+            r"decorative props",
+            r"home prop",
+            r"household prop",
+            r"furnishing",
+            r"furnishings",
+            r"家具",
+            r"摆件",
+            r"摆设",
+            r"装饰物",
+            r"装饰道具",
+            r"家居道具",
+            r"第一阶段",
+        ],
+    ),
+    (
         "static",
         [
             r"static asset",

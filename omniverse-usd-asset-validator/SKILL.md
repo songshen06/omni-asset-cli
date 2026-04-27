@@ -5,7 +5,7 @@ description: Validate OpenUSD or USDZ assets with NVIDIA Omniverse Asset Validat
 
 # Omniverse USD Asset Validator
 
-Use this skill to validate USD assets, map natural-language requests into deterministic commands, and return outputs that work well for both human operators and AI agents.
+Use this skill to validate USD assets, map natural-language requests into deterministic commands, and return outputs that work well for both human operators and AI agents. The current Stage 1 path is static furniture, furnishings, and decorative props.
 
 ## Default Entry Point
 
@@ -33,15 +33,16 @@ Check the environment:
 omni-asset-cli env
 ```
 
-Run default validation:
+Run Stage 1 furniture/prop validation:
 
 ```bash
-omni-asset-cli validate path/to/asset.usd
+omni-asset-cli validate path/to/asset.usd --profile stage1-furniture
 ```
 
-Validate with a profile:
+Legacy profile validation remains available:
 
 ```bash
+omni-asset-cli validate path/to/asset.usd --profile stage1-furniture
 omni-asset-cli validate path/to/asset.usd --profile static
 omni-asset-cli validate path/to/asset.usd --profile collidable
 omni-asset-cli validate path/to/asset.usd --profile movable
@@ -51,19 +52,33 @@ Map natural language:
 
 ```bash
 omni-asset-cli map path/to/asset.usd "check references"
+omni-asset-cli map path/to/asset.usd "validate this as static furniture and decor props"
 omni-asset-cli map path/to/asset.usd "check Isaac Sim structure"
 ```
 
 Map and execute directly:
 
 ```bash
-omni-asset-cli validate-from-prompt path/to/asset.usd "validate this as a static asset"
+omni-asset-cli validate-from-prompt path/to/asset.usd "validate this as static furniture and decor props"
+```
+
+Run the Stage 1 top-drop runtime check when a physics runtime is available:
+
+```bash
+omni-asset-cli physics-hit-test path/to/asset.usd \
+  --template-scene examples/mini_test.usda \
+  --replace-prim /World/roomScene/colliders/table \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --out out/asset_top_drop
 ```
 
 ## Natural-Language Handling Rules
 
 - Default to read-only validation and do not add `--fix` unless the user asks.
 - Keep the default rules unless the user explicitly narrows the scope.
+- Map furniture, furnishings, decor props, Stage 1, 家具, 摆件, 装饰道具 prompts to `--profile stage1-furniture`.
+- For Stage 1 runtime checks, prefer `--hit-mode top-drop --size-policy preserve` so the asset keeps its real bbox and the box is aimed above the bbox center.
 - Fall back to standard validation if the prompt does not match a specific rule.
 - Prefer `KindChecker` only when the user explicitly asks about Isaac Sim, SimReady, hierarchy, or component semantics.
 

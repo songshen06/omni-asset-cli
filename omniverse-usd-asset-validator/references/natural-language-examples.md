@@ -19,6 +19,9 @@
 
 ### 业务口吻
 
+- `按家具和摆件 Stage 1 检查`
+- `这个资产能不能进入静态家具 SimReady 第一阶段`
+- `检查这个装饰道具是否适合 Stage 1`
 - `这个资产能不能先当静态资产交付`
 - `这个资产适不适合做碰撞`
 - `这个机器人资产适不适合抓取和移动`
@@ -42,7 +45,9 @@
 
 ### Business-Language Prompts
 
+- `validate this as static furniture and decor props`
+- `run the Stage 1 furniture check`
+- `can this furnishing enter the Stage 1 SimReady flow`
 - `can this be used as a static asset`
 - `is this asset good for collision`
 - `is this robot asset suitable for grasping and moving`
-

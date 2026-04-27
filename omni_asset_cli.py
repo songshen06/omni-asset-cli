@@ -32,7 +32,7 @@ def add_common_validation_args(parser: argparse.ArgumentParser) -> None:
         default=[],
         help="Additional resolver search path entries",
     )
-    parser.add_argument("--profile", choices=["static", "collidable", "movable"])
+    parser.add_argument("--profile", choices=["stage1-furniture", "static", "collidable", "movable"])
     parser.add_argument("--rule", action="append", default=[], help="Specific rule to enable")
     parser.add_argument("--category", action="append", default=[], help="Specific category to enable")
     parser.add_argument("--predicate", choices=["Any", "IsError", "IsFailure", "IsWarning", "HasRootLayer"])
@@ -105,6 +105,42 @@ def build_async_command(args: argparse.Namespace) -> list[str]:
     return command
 
 
+def build_physics_hit_test_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(script_path("run_physics_hit_test.py")), args.asset]
+
+    if args.template_scene:
+        command.extend(["--template-scene", args.template_scene])
+    if args.replace_prim:
+        command.extend(["--replace-prim", args.replace_prim])
+    if args.hit_mode:
+        command.extend(["--hit-mode", args.hit_mode])
+    if args.size_policy:
+        command.extend(["--size-policy", args.size_policy])
+    if args.frames is not None:
+        command.extend(["--frames", str(args.frames)])
+    if args.fps is not None:
+        command.extend(["--fps", str(args.fps)])
+    if args.out:
+        command.extend(["--out", args.out])
+    if args.no_headless:
+        command.append("--no-headless")
+    if args.runtime_python:
+        command.extend(["--runtime-python", args.runtime_python])
+    if args.runtime_platform:
+        command.extend(["--runtime-platform", args.runtime_platform])
+
+    return command
+
+
+def build_physics_env_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(script_path("check_physics_runtime_env.py"))]
+    if args.runtime_python:
+        command.extend(["--runtime-python", args.runtime_python])
+    if args.runtime_platform:
+        command.extend(["--runtime-platform", args.runtime_platform])
+    return command
+
+
 def cmd_env(_: argparse.Namespace) -> int:
     return passthrough([sys.executable, str(script_path("check_omniverse_asset_validator_env.py"))])
 
@@ -126,6 +162,14 @@ def cmd_validate_from_prompt(args: argparse.Namespace) -> int:
 
 def cmd_validate_async(args: argparse.Namespace) -> int:
     return passthrough(build_async_command(args))
+
+
+def cmd_physics_hit_test(args: argparse.Namespace) -> int:
+    return passthrough(build_physics_hit_test_command(args))
+
+
+def cmd_physics_env(args: argparse.Namespace) -> int:
+    return passthrough(build_physics_env_command(args))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -185,6 +229,61 @@ def build_parser() -> argparse.ArgumentParser:
     async_parser.add_argument("--no-init-rules", action="store_true", help="Disable default rule initialization")
     async_parser.add_argument("--extra-arg", action="append", default=[], help="Raw argument for omni_asset_validate")
     async_parser.set_defaults(func=cmd_validate_async)
+
+    physics_parser = subparsers.add_parser(
+        "physics-hit-test",
+        help="Run a minimal runtime physics harness with a dynamic box hitting a static furniture/prop asset",
+    )
+    physics_parser.add_argument("asset", help="Path to the USD asset")
+    physics_parser.add_argument(
+        "--template-scene",
+        help="Optional authored USD scene template with /World/TestAssetSlot and /World/boxActor",
+    )
+    physics_parser.add_argument(
+        "--replace-prim",
+        default="/World/roomScene/colliders/table",
+        help=(
+            "Template prim path to replace with the target asset. "
+            "Only used with --template-scene; pass an empty value to use /World/TestAssetSlot instead."
+        ),
+    )
+    physics_parser.add_argument(
+        "--hit-mode",
+        choices=["side-hit", "top-drop"],
+        default="side-hit",
+        help="How to drive the dynamic box. Use top-drop for Stage 1 furniture/prop checks.",
+    )
+    physics_parser.add_argument(
+        "--size-policy",
+        choices=["template-fit", "preserve"],
+        default="template-fit",
+        help="Whether template mode scales to the replaced prim footprint or preserves the asset's real size.",
+    )
+    physics_parser.add_argument("--frames", type=int, default=240, help="Number of frames to simulate")
+    physics_parser.add_argument("--fps", type=float, default=60.0, help="Simulation frames per second")
+    physics_parser.add_argument("--out", help="Output directory for runtime artifacts")
+    physics_parser.add_argument("--no-headless", action="store_true", help="Disable headless runtime mode")
+    physics_parser.add_argument("--runtime-python", help="Optional Isaac Sim python launcher path")
+    physics_parser.add_argument(
+        "--runtime-platform",
+        choices=["auto", "linux", "windows"],
+        default="auto",
+        help="Target runtime platform when using an external Isaac Sim python",
+    )
+    physics_parser.set_defaults(func=cmd_physics_hit_test)
+
+    physics_env_parser = subparsers.add_parser(
+        "physics-env",
+        help="Check whether the runtime physics harness can launch Isaac Sim in the current environment",
+    )
+    physics_env_parser.add_argument("--runtime-python", help="Optional Isaac Sim python launcher path")
+    physics_env_parser.add_argument(
+        "--runtime-platform",
+        choices=["auto", "linux", "windows"],
+        default="auto",
+        help="Target runtime platform when using an external Isaac Sim python",
+    )
+    physics_env_parser.set_defaults(func=cmd_physics_env)
 
     return parser
 

@@ -4,7 +4,7 @@ from setuptools import setup
 setup(
     name="omni-asset-cli",
     version="0.1.0",
-    description="Unified CLI for validating OpenUSD assets with NVIDIA Omniverse Asset Validator",
+    description="Unified CLI for Stage 1 furniture and prop OpenUSD validation with NVIDIA Omniverse Asset Validator",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     python_requires=">=3.10",
@@ -18,4 +18,3 @@ setup(
         "validator": ["omniverse-asset-validator[usd,numpy]"],
     },
 )
-

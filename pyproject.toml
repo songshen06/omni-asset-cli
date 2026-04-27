@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "omni-asset-cli"
 version = "0.1.0"
-description = "Unified CLI for validating OpenUSD assets with NVIDIA Omniverse Asset Validator"
+description = "Unified CLI for Stage 1 furniture and prop OpenUSD validation with NVIDIA Omniverse Asset Validator"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [

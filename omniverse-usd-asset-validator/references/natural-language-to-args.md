@@ -13,6 +13,8 @@
 | 中文请求 | 推荐参数 |
 | --- | --- |
 | 检查这个资产 | `validate <asset>` |
+| 按家具和摆件 Stage 1 检查 | `validate <asset> --profile stage1-furniture` |
+| 检查静态家具和装饰道具 | `validate <asset> --profile stage1-furniture` |
 | 检查基础元数据 | `validate <asset> --rule StageMetadataChecker` |
 | 检查引用 | `validate <asset> --rule MissingReferenceChecker` |
 | 检查 Isaac Sim 结构 | `validate <asset> --rule KindChecker` |
@@ -39,6 +41,8 @@
 | Request | Recommended arguments |
 | --- | --- |
 | check this asset | `validate <asset>` |
+| validate Stage 1 furniture and props | `validate <asset> --profile stage1-furniture` |
+| validate static furniture and decor props | `validate <asset> --profile stage1-furniture` |
 | check stage metadata | `validate <asset> --rule StageMetadataChecker` |
 | check references | `validate <asset> --rule MissingReferenceChecker` |
 | check Isaac Sim structure | `validate <asset> --rule KindChecker` |
@@ -51,4 +55,3 @@
 | validate as static | `validate <asset> --profile static` |
 | validate as collidable | `validate <asset> --profile collidable` |
 | validate as movable | `validate <asset> --profile movable` |
-

@@ -144,6 +144,28 @@ LOW_IMPACT_RULES = {
 }
 
 PROFILE_PRESETS = {
+    "stage1-furniture": {
+        "label": "Stage 1 家具/摆件",
+        "description": "适用于静态家具、摆件、装饰道具等第一阶段 SimReady 资产检查。",
+        "rules": [
+            "StageMetadataChecker",
+            "DefaultPrimChecker",
+            "MissingReferenceChecker",
+            "MaterialPathChecker",
+            "UsdDanglingMaterialBinding",
+            "UsdMaterialBindingApi",
+            "ValidateTopologyChecker",
+            "ManifoldChecker",
+            "ZeroAreaFaceChecker",
+            "NormalsValidChecker",
+            "WeldChecker",
+            "ExtentsChecker",
+        ],
+        "reasons": [
+            "Stage 1 目标是静态家具和摆件，优先确认资产入口、引用、材质链路和 mesh 质量。",
+            "collider 推荐与 authoring 由 usd-simready-inspector 的静态家具链路承接，本 profile 先给出交付前校验结果。",
+        ],
+    },
     "static": {
         "label": "静态资产",
         "description": "适用于展示、场景摆放、背景道具和非交互资产。",
@@ -421,9 +443,53 @@ def build_static_profile_advice(payload: dict[str, Any]) -> list[str]:
     return lines
 
 
+def build_stage1_furniture_advice(payload: dict[str, Any]) -> list[str]:
+    if payload["config"].get("profile") != "stage1-furniture":
+        return []
+
+    rule_counts = payload["summary"]["rule_counts"]
+    lines: list[str] = []
+
+    if payload["status"] == "passed":
+        lines.append("- 总体建议：`可进入 Stage 1 后续流程`。当前家具/摆件资产在入口、依赖、材质和 mesh 质量上没有发现明显阻塞。")
+    elif any(rule_counts.get(name) for name in ["MissingReferenceChecker", "MaterialPathChecker"]):
+        lines.append("- 总体建议：`先修依赖再继续`。Stage 1 家具/摆件需要先保证引用、MDL 和贴图路径可解析。")
+    elif any(rule_counts.get(name) for name in ["ManifoldChecker", "ValidateTopologyChecker", "ZeroAreaFaceChecker", "NormalsValidChecker"]):
+        lines.append("- 总体建议：`先清理 mesh 再做 collider 推荐`。当前几何质量会影响静态 collider authoring 和 runtime hit-test。")
+    else:
+        lines.append("- 总体建议：`建议修复后复测`。当前问题会影响家具/摆件进入 SimReady Stage 1 流程。")
+
+    lines.append("- Stage 1 边界：本报告负责 validator 校验；家具分类、尺寸参考和静态 collider 推荐由 `usd-simready-inspector` 的 static furniture 流程承接。")
+    lines.append("- 推荐顺序：先修引用和材质路径，再清理 mesh，最后运行静态家具推荐和模板 runtime hit-test。")
+
+    if rule_counts.get("DefaultPrimChecker") or rule_counts.get("StageMetadataChecker"):
+        lines.append("- 入口与单位：补齐 `defaultPrim`、`upAxis`、`metersPerUnit`，避免家具资产被下游工具按错误入口或尺度读取。")
+    if rule_counts.get("UsdDanglingMaterialBinding") or rule_counts.get("UsdMaterialBindingApi"):
+        lines.append("- 材质绑定：修正材质 prim 路径和 MaterialBindingAPI，避免 Stage 1 人工复核时出现材质丢失。")
+    if rule_counts.get("ExtentsChecker"):
+        lines.append("- 尺寸信息：修正 extents，后续尺寸分组、table-slot fitting 和静态 collider 推荐会依赖 bbox。")
+
+    return lines
+
+
 def infer_next_steps(payload: dict[str, Any]) -> list[str]:
     rule_counts = payload["summary"]["rule_counts"]
     steps: list[str] = []
+
+    if payload["config"].get("profile") == "stage1-furniture":
+        if rule_counts.get("MissingReferenceChecker") or rule_counts.get("MaterialPathChecker"):
+            steps.append("先修复外部引用、MDL 和贴图路径，保证家具/摆件资产完整可解析。")
+        if rule_counts.get("UsdDanglingMaterialBinding") or rule_counts.get("UsdMaterialBindingApi"):
+            steps.append("修正材质绑定目标和 MaterialBindingAPI，避免 Stage 1 复核时材质丢失。")
+        if any(rule_counts.get(name) for name in ["ManifoldChecker", "ValidateTopologyChecker", "ZeroAreaFaceChecker", "NormalsValidChecker", "WeldChecker"]):
+            steps.append("清理 mesh 拓扑、manifold、零面积面、法线和重复点，再做静态 collider 推荐。")
+        if rule_counts.get("StageMetadataChecker") or rule_counts.get("DefaultPrimChecker") or rule_counts.get("ExtentsChecker"):
+            steps.append("补齐 stage 元数据、defaultPrim 和 extents，稳定后续尺寸分组与模板场景注入。")
+        if not steps and payload["status"] == "passed":
+            steps.append("运行 usd-simready-inspector 静态家具推荐，抽查 furniture_class、size、support_structure 和 recommended_collider。")
+            steps.append("在可用 Isaac Sim runtime 中运行 template physics-hit-test，确认 Stage 1 runtime 链路。")
+        if steps:
+            return steps[:4]
 
     if payload["config"].get("profile") == "static":
         if rule_counts.get("MissingReferenceChecker"):
@@ -485,6 +551,14 @@ def collect_rules_by_priority(payload: dict[str, Any]) -> dict[str, list[tuple[s
 
 def build_one_line_conclusion(payload: dict[str, Any]) -> str:
     rule_counts = payload["summary"]["rule_counts"]
+    if payload["config"].get("profile") == "stage1-furniture":
+        if payload["status"] == "passed":
+            return "这份家具/摆件资产通过了 Stage 1 validator 检查，可以继续进入静态家具推荐和 runtime 模板验证。"
+        if any(rule_counts.get(name) for name in ["MissingReferenceChecker", "MaterialPathChecker"]):
+            return "这份家具/摆件资产的主要问题在引用或材质依赖，进入 Stage 1 后续流程前应先修复资产完整性。"
+        if any(rule_counts.get(name) for name in ["ManifoldChecker", "ValidateTopologyChecker", "ZeroAreaFaceChecker"]):
+            return "这份家具/摆件资产的主要问题在 mesh 质量，直接做静态 collider 推荐和 runtime 测试会放大风险。"
+        return "这份家具/摆件资产还存在 Stage 1 校验问题，建议按报告优先级修复后复测。"
     if payload["status"] == "passed":
         return "这份资产当前没有发现明显问题，可以继续进入 SimReady 后续流程。"
     if any(rule_counts.get(name) for name in ["KindChecker", "DefaultPrimChecker", "LayerSpecChecker"]):
@@ -498,6 +572,44 @@ def build_one_line_conclusion(payload: dict[str, Any]) -> str:
 
 def asset_use_assessments(payload: dict[str, Any]) -> list[dict[str, str]]:
     rule_counts = payload["summary"]["rule_counts"]
+    if payload["config"].get("profile") == "stage1-furniture":
+        has_dependency = any(rule_counts.get(name) for name in ["MissingReferenceChecker", "MaterialPathChecker"])
+        has_material = any(rule_counts.get(name) for name in ["UsdDanglingMaterialBinding", "UsdMaterialBindingApi"])
+        has_mesh = any(
+            rule_counts.get(name)
+            for name in ["ManifoldChecker", "ValidateTopologyChecker", "ZeroAreaFaceChecker", "NormalsValidChecker", "WeldChecker"]
+        )
+        has_structure = any(rule_counts.get(name) for name in ["StageMetadataChecker", "DefaultPrimChecker", "ExtentsChecker"])
+
+        stage1_status = "可进入后续流程"
+        stage1_reason = "当前 validator 范围内没有发现阻塞家具/摆件 Stage 1 的问题。"
+        if has_dependency:
+            stage1_status = "先修复依赖"
+            stage1_reason = "引用、MDL 或贴图路径不可解析会让资产不完整，后续分类和 authoring 结果不可信。"
+        elif has_mesh:
+            stage1_status = "先清理 mesh"
+            stage1_reason = "mesh 拓扑或法线问题会影响静态 collider 推荐和 runtime 接触稳定性。"
+        elif has_material or has_structure:
+            stage1_status = "建议修复后继续"
+            stage1_reason = "材质绑定、入口或尺寸元数据问题会影响 Stage 1 交付复核。"
+        if payload["status"] == "passed":
+            stage1_status = "可进入后续流程"
+            stage1_reason = "当前检查范围内未发现 Stage 1 阻塞问题。"
+
+        return [
+            {"name": "Stage 1 家具/摆件", "status": stage1_status, "reason": stage1_reason},
+            {
+                "name": "静态 collider 推荐",
+                "status": "可作为后续步骤" if not (has_dependency or has_mesh) else "暂缓",
+                "reason": "由 usd-simready-inspector 的 static furniture 流程处理，建议在依赖和 mesh 清理后运行。",
+            },
+            {
+                "name": "runtime 模板测试",
+                "status": "环境可用时执行",
+                "reason": "使用 examples/mini_test.usda 注入家具/摆件资产，blocked 应区分为 runtime 环境问题而不是资产失败。",
+            },
+        ]
+
     has_structure = any(rule_counts.get(name) for name in ["KindChecker", "DefaultPrimChecker", "LayerSpecChecker"])
     has_material = any(
         rule_counts.get(name)
@@ -563,6 +675,7 @@ def build_markdown_report(payload: dict[str, Any]) -> str:
     assessments = asset_use_assessments(payload)
     profile_rationale = build_profile_rationale(payload["config"].get("profile"))
     static_profile_advice = build_static_profile_advice(payload)
+    stage1_furniture_advice = build_stage1_furniture_advice(payload)
     search_paths = payload["config"].get("pxr_ar_default_search_path", [])
 
     lines = [
@@ -590,7 +703,7 @@ def build_markdown_report(payload: dict[str, Any]) -> str:
         "",
         build_one_line_conclusion(payload),
         "",
-        "## 按资产用途看影响",
+        "## 按 Stage 1 流程看影响" if payload["config"].get("profile") == "stage1-furniture" else "## 按资产用途看影响",
         "",
         ]
     )
@@ -604,6 +717,11 @@ def build_markdown_report(payload: dict[str, Any]) -> str:
     if static_profile_advice:
         lines.extend(["## 静态资产交付建议", ""])
         lines.extend(static_profile_advice)
+        lines.append("")
+
+    if stage1_furniture_advice:
+        lines.extend(["## Stage 1 家具/摆件建议", ""])
+        lines.extend(stage1_furniture_advice)
         lines.append("")
 
     lines.extend(["## 问题按优先级分类", ""])
