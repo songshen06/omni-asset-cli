@@ -128,6 +128,14 @@ def build_physics_hit_test_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--runtime-python", args.runtime_python])
     if args.runtime_platform:
         command.extend(["--runtime-platform", args.runtime_platform])
+    if args.runtime_docker_image:
+        command.extend(["--runtime-docker-image", args.runtime_docker_image])
+    if args.runtime_docker_container:
+        command.extend(["--runtime-docker-container", args.runtime_docker_container])
+    if args.docker_workspace:
+        command.extend(["--docker-workspace", args.docker_workspace])
+    if args.docker_python:
+        command.extend(["--docker-python", args.docker_python])
 
     return command
 
@@ -138,6 +146,14 @@ def build_physics_env_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--runtime-python", args.runtime_python])
     if args.runtime_platform:
         command.extend(["--runtime-platform", args.runtime_platform])
+    if args.runtime_docker_image:
+        command.extend(["--runtime-docker-image", args.runtime_docker_image])
+    if args.runtime_docker_container:
+        command.extend(["--runtime-docker-container", args.runtime_docker_container])
+    if args.docker_workspace:
+        command.extend(["--docker-workspace", args.docker_workspace])
+    if args.docker_python:
+        command.extend(["--docker-python", args.docker_python])
     return command
 
 
@@ -270,6 +286,24 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Target runtime platform when using an external Isaac Sim python",
     )
+    physics_parser.add_argument(
+        "--runtime-docker-image",
+        help="Optional Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
+    )
+    physics_parser.add_argument(
+        "--runtime-docker-container",
+        help="Optional running Isaac Sim container name or ID to exec into",
+    )
+    physics_parser.add_argument(
+        "--docker-workspace",
+        default="/workspace/omni-asset-cli",
+        help="Repository mount path inside the Isaac Sim container",
+    )
+    physics_parser.add_argument(
+        "--docker-python",
+        default="/isaac-sim/python.sh",
+        help="Isaac Sim Python launcher path inside the container",
+    )
     physics_parser.set_defaults(func=cmd_physics_hit_test)
 
     physics_env_parser = subparsers.add_parser(
@@ -282,6 +316,24 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["auto", "linux", "windows"],
         default="auto",
         help="Target runtime platform when using an external Isaac Sim python",
+    )
+    physics_env_parser.add_argument(
+        "--runtime-docker-image",
+        help="Optional Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
+    )
+    physics_env_parser.add_argument(
+        "--runtime-docker-container",
+        help="Optional running Isaac Sim container name or ID to exec into",
+    )
+    physics_env_parser.add_argument(
+        "--docker-workspace",
+        default="/workspace/omni-asset-cli",
+        help="Repository mount path inside the Isaac Sim container",
+    )
+    physics_env_parser.add_argument(
+        "--docker-python",
+        default="/isaac-sim/python.sh",
+        help="Isaac Sim Python launcher path inside the container",
     )
     physics_env_parser.set_defaults(func=cmd_physics_env)
 

@@ -72,6 +72,24 @@ def parse_args() -> argparse.Namespace:
         help="Target runtime platform when dispatching to an external Isaac Sim Python",
     )
     parser.add_argument(
+        "--runtime-docker-image",
+        help="Optional Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
+    )
+    parser.add_argument(
+        "--runtime-docker-container",
+        help="Optional running Isaac Sim container name or ID to exec into",
+    )
+    parser.add_argument(
+        "--docker-workspace",
+        default="/workspace/omni-asset-cli",
+        help="Repository mount path inside the Isaac Sim container",
+    )
+    parser.add_argument(
+        "--docker-python",
+        default="/isaac-sim/python.sh",
+        help="Isaac Sim Python launcher path inside the container",
+    )
+    parser.add_argument(
         "--external-runtime-child",
         action="store_true",
         help=argparse.SUPPRESS,
@@ -107,6 +125,10 @@ def main() -> int:
         headless=not args.no_headless,
         runtime_python=args.runtime_python,
         runtime_platform=args.runtime_platform,
+        runtime_docker_image=args.runtime_docker_image,
+        runtime_docker_container=args.runtime_docker_container,
+        docker_workspace=args.docker_workspace,
+        docker_python=args.docker_python,
     )
     summary, code = execute_hit_test_entry(
         config,

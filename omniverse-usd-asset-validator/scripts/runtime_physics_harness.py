@@ -15,7 +15,28 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from pxr import Gf, Usd, UsdGeom, UsdPhysics
+try:
+    from pxr import Gf, Usd, UsdGeom, UsdPhysics
+except ImportError:  # Allows host-side Docker dispatch without local USD Python packages.
+    Gf = None  # type: ignore[assignment]
+    Usd = None  # type: ignore[assignment]
+    UsdGeom = None  # type: ignore[assignment]
+    UsdPhysics = None  # type: ignore[assignment]
+
+
+def _ensure_pxr_loaded() -> None:
+    global Gf, Usd, UsdGeom, UsdPhysics
+    if all(module is not None for module in (Gf, Usd, UsdGeom, UsdPhysics)):
+        return
+    from pxr import Gf as _Gf
+    from pxr import Usd as _Usd
+    from pxr import UsdGeom as _UsdGeom
+    from pxr import UsdPhysics as _UsdPhysics
+
+    Gf = _Gf
+    Usd = _Usd
+    UsdGeom = _UsdGeom
+    UsdPhysics = _UsdPhysics
 
 
 @dataclass
@@ -31,6 +52,10 @@ class RuntimeConfig:
     headless: bool = True
     runtime_python: str | None = None
     runtime_platform: str = "auto"
+    runtime_docker_image: str | None = None
+    runtime_docker_container: str | None = None
+    docker_workspace: str = "/workspace/omni-asset-cli"
+    docker_python: str = "/isaac-sim/python.sh"
 
 
 @dataclass
@@ -81,6 +106,10 @@ def _host_platform() -> str:
     if system.startswith("win"):
         return "windows"
     return "linux"
+
+
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
 
 
 def is_wsl() -> bool:
@@ -768,6 +797,95 @@ def _build_external_runtime_command(runtime_python: str, script_path: Path, conf
     return [runtime_python, *command]
 
 
+def _path_in_docker(path: Path, config: RuntimeConfig) -> str:
+    resolved = path.resolve()
+    root = repo_root().resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            f"Docker runtime paths must be inside the repository mount: path={resolved}, repo={root}"
+        ) from exc
+    return str(Path(config.docker_workspace) / relative)
+
+
+def _build_docker_child_args(script_path: Path, config: RuntimeConfig) -> list[str]:
+    command = [
+        _path_in_docker(script_path, config),
+        _path_in_docker(config.asset, config),
+        "--frames",
+        str(config.frames),
+        "--fps",
+        str(config.fps),
+        "--out",
+        _path_in_docker(config.out_dir, config),
+        "--runtime-platform",
+        "linux",
+        "--external-runtime-child",
+    ]
+    if config.template_scene is not None:
+        command.extend(["--template-scene", _path_in_docker(config.template_scene, config)])
+    if config.replace_prim:
+        command.extend(["--replace-prim", config.replace_prim])
+    command.extend(["--hit-mode", config.hit_mode])
+    command.extend(["--size-policy", config.size_policy])
+    if not config.headless:
+        command.append("--no-headless")
+    return command
+
+
+def _build_docker_run_command(script_path: Path, config: RuntimeConfig) -> list[str]:
+    if not config.runtime_docker_image:
+        raise ValueError("runtime_docker_image is required for docker run dispatch.")
+
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "--gpus",
+        "all",
+        "--network",
+        "host",
+        "--ipc",
+        "host",
+        "-e",
+        "ACCEPT_EULA=Y",
+        "-e",
+        "PRIVACY_CONSENT=Y",
+        "-v",
+        f"{repo_root().resolve()}:{config.docker_workspace}",
+        "-w",
+        config.docker_workspace,
+        "--entrypoint",
+        config.docker_python,
+        config.runtime_docker_image,
+        *_build_docker_child_args(script_path, config),
+    ]
+
+
+def _build_docker_exec_command(script_path: Path, config: RuntimeConfig) -> list[str]:
+    if not config.runtime_docker_container:
+        raise ValueError("runtime_docker_container is required for docker exec dispatch.")
+
+    return [
+        "docker",
+        "exec",
+        "-w",
+        config.docker_workspace,
+        config.runtime_docker_container,
+        config.docker_python,
+        *_build_docker_child_args(script_path, config),
+    ]
+
+
+def _prepare_docker_output_dir(out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        out_dir.chmod(0o777)
+    except PermissionError:
+        pass
+
+
 def _load_summary_payload(out_dir: Path) -> dict[str, Any] | None:
     summary_path = out_dir / "summary.json"
     if not summary_path.exists():
@@ -796,6 +914,67 @@ def _clear_runtime_artifacts(out_dir: Path) -> None:
 
 
 def run_external_runtime(script_path: Path, config: RuntimeConfig) -> tuple[dict[str, Any], int] | None:
+    if config.runtime_docker_container or config.runtime_docker_image:
+        _prepare_docker_output_dir(config.out_dir)
+        _clear_runtime_artifacts(config.out_dir)
+        command = (
+            _build_docker_exec_command(script_path, config)
+            if config.runtime_docker_container
+            else _build_docker_run_command(script_path, config)
+        )
+        completed = subprocess.run(command, check=False)
+        payload = _load_summary_payload(config.out_dir)
+
+        if payload is None:
+            summary_payload = {
+                "asset": str(config.asset),
+                "test_type": _test_type_for_config(config),
+                "result": "blocked",
+                "frames": config.frames,
+                "hit_mode": config.hit_mode,
+                "size_policy": config.size_policy,
+                "checks": {
+                    "asset_loaded": False,
+                    "static_colliders_applied": False,
+                    "dynamic_box_created": False,
+                    "simulation_advanced": False,
+                    "hit_targeted": False,
+                    "size_preserved": False,
+                    "contact_detected_or_inferred": False,
+                    "artifacts_written": True,
+                },
+                "notes": [
+                    f"Docker runtime command failed to produce summary.json: returncode={completed.returncode}",
+                    f"runtime_docker_image={config.runtime_docker_image}",
+                    f"runtime_docker_container={config.runtime_docker_container}",
+                ],
+            }
+            report_payload = {
+                "input_usd_path": str(config.asset),
+                "template_scene_path": str(config.template_scene) if config.template_scene is not None else None,
+                "replace_prim": config.replace_prim,
+                "hit_mode": config.hit_mode,
+                "size_policy": config.size_policy,
+                "external_runtime": {
+                    "runtime_docker_image": config.runtime_docker_image,
+                    "runtime_docker_container": config.runtime_docker_container,
+                    "command": command,
+                    "returncode": completed.returncode,
+                },
+            }
+            write_json(config.out_dir / "summary.json", summary_payload)
+            write_json(config.out_dir / "runtime_report.json", report_payload)
+            write_timeline_csv(config.out_dir, [])
+            payload = summary_payload
+        else:
+            payload.setdefault("notes", [])
+            if config.runtime_docker_container:
+                payload["notes"].append(f"external_runtime_docker_container={config.runtime_docker_container}")
+            else:
+                payload["notes"].append(f"external_runtime_docker_image={config.runtime_docker_image}")
+
+        return payload, completed.returncode
+
     runtime_python = discover_runtime_python(config)
     if runtime_python is None:
         return None
@@ -873,6 +1052,7 @@ def run_simulation(
     *,
     simulation_app_cls: Any,
     runtime_name: str | None,
+    simulation_app: Any | None = None,
 ) -> tuple[str, list[TimelineSample], dict[str, Any], list[str]]:
     if simulation_app_cls is None:
         return (
@@ -888,7 +1068,9 @@ def run_simulation(
     notes = [f"runtime={runtime_name or 'unavailable'}", f"host_platform={_host_platform()}"]
     samples: list[TimelineSample] = []
     final_state: dict[str, Any] = {}
-    simulation_app = simulation_app_cls({"headless": config.headless})
+    owns_simulation_app = simulation_app is None
+    if simulation_app is None:
+        simulation_app = simulation_app_cls({"headless": config.headless})
 
     try:
         import omni.timeline  # type: ignore
@@ -937,7 +1119,8 @@ def run_simulation(
         }
         return "passed", samples, final_state, notes
     finally:
-        simulation_app.close()
+        if owns_simulation_app:
+            simulation_app.close()
 
 
 def _xy_inside_asset_bbox(scene: SceneBuildResult, x: float, y: float, margin: float = 0.0) -> bool:
@@ -1052,12 +1235,18 @@ def execute_hit_test_entry(
             if external_result is not None:
                 return external_result
 
+        simulation_app = None
+        if simulation_app_cls is not None:
+            simulation_app = simulation_app_cls({"headless": config.headless})
+
+        _ensure_pxr_loaded()
         scene = build_template_hit_test_stage(config) if config.template_scene is not None else build_hit_test_stage(config)
         simulation_status, samples, final_state, notes = run_simulation(
             config,
             scene,
             simulation_app_cls=simulation_app_cls,
             runtime_name=runtime_name,
+            simulation_app=simulation_app,
         )
         hit_analysis = analyze_hit(scene, simulation_status, samples)
         checks = build_checks(scene, simulation_status, samples, hit_analysis)
@@ -1112,6 +1301,9 @@ def execute_hit_test_entry(
 
         write_json(config.out_dir / "summary.json", summary_payload)
         write_json(config.out_dir / "runtime_report.json", report_payload)
+
+        if simulation_app is not None:
+            simulation_app.close()
 
         if simulation_status == "passed":
             return summary_payload, 0

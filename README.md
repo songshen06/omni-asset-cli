@@ -106,6 +106,13 @@ omni-asset-cli physics-hit-test path/to/chair.usd \
 python3 omni_asset_cli.py physics-env --runtime-python C:\\isaacsim\\python.bat --runtime-platform windows
 ```
 
+使用 Isaac Sim Docker 做 runtime 环境探测：
+
+```bash
+python3 omni_asset_cli.py physics-env \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
 如果当前解释器不是 Isaac Sim Python，也可以显式指定 runtime：
 
 Linux:
@@ -123,6 +130,29 @@ python3 omni_asset_cli.py physics-hit-test /mnt/c/path/to/chair.usd \
   --out /mnt/c/path/to/artifacts/chair_hit \
   --runtime-python C:\\isaacsim\\python.bat \
   --runtime-platform windows
+```
+
+Linux 宿主机调用 Isaac Sim Docker 跑碰撞检测：
+
+```bash
+python3 omni_asset_cli.py physics-hit-test examples/minimal_scene.usda \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --out out/minimal_scene_docker_hit \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+如果你已经手工启动了带仓库挂载的 Isaac Sim 容器，可以复用容器：
+
+```bash
+python3 omni_asset_cli.py physics-hit-test examples/minimal_scene.usda \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --out out/minimal_scene_docker_hit \
+  --runtime-docker-container isaac-sim \
+  --docker-workspace /workspace/omni-asset-cli
 ```
 
 `physics-hit-test` 会优先在当前解释器中直接运行；如果当前解释器没有 `SimulationApp`，则会尝试切换到外部 Isaac Sim Python。默认输出目录改为仓库内 `out/`，便于 Linux / Windows 共享访问。
