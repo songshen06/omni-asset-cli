@@ -45,6 +45,7 @@ class RuntimeConfig:
     out_dir: Path
     template_scene: Path | None = None
     replace_prim: str | None = "/World/roomScene/colliders/table"
+    placement_mode: str = "auto"
     hit_mode: str = "side-hit"
     size_policy: str = "template-fit"
     frames: int = 240
@@ -56,6 +57,9 @@ class RuntimeConfig:
     runtime_docker_container: str | None = None
     docker_workspace: str = "/workspace/omni-asset-cli"
     docker_python: str = "/isaac-sim/python.sh"
+    render_frames: bool = False
+    render_every_n_frames: int = 1
+    render_warmup_updates: int = 2
 
 
 @dataclass
@@ -95,6 +99,14 @@ class SceneBuildResult:
     asset_bbox_before_align_max: tuple[float, float, float]
     asset_bbox_min: tuple[float, float, float]
     asset_bbox_max: tuple[float, float, float]
+
+
+@dataclass
+class RenderCaptureResult:
+    frame_count: int
+    output_dir: Path | None
+    files: list[str]
+    errors: list[str]
 
 
 def default_out_dir(asset_path: Path) -> Path:
@@ -407,6 +419,38 @@ def place_asset_on_replaced_prim_preserving_size(
     return compute_world_bbox(stage, asset_prim)
 
 
+def place_asset_on_tabletop_preserving_size(
+    stage: Usd.Stage,
+    asset_prim: Usd.Prim,
+    table_range: Gf.Range3d,
+) -> Gf.Range3d:
+    initial_range = compute_world_bbox(stage, asset_prim)
+    if initial_range.IsEmpty() or table_range.IsEmpty():
+        return initial_range
+
+    asset_min = initial_range.GetMin()
+    asset_max = initial_range.GetMax()
+    table_min = table_range.GetMin()
+    table_max = table_range.GetMax()
+
+    asset_center_x = (float(asset_min[0]) + float(asset_max[0])) / 2.0
+    asset_center_y = (float(asset_min[1]) + float(asset_max[1])) / 2.0
+    table_center_x = (float(table_min[0]) + float(table_max[0])) / 2.0
+    table_center_y = (float(table_min[1]) + float(table_max[1])) / 2.0
+    table_top_z = float(table_max[2])
+
+    translate = Gf.Vec3d(
+        table_center_x - asset_center_x,
+        table_center_y - asset_center_y,
+        table_top_z - float(asset_min[2]),
+    )
+
+    asset_xform = UsdGeom.Xformable(asset_prim)
+    _clear_xform_ops(asset_prim)
+    _append_translate_op(asset_xform, translate)
+    return compute_world_bbox(stage, asset_prim)
+
+
 def _is_gprim(prim: Usd.Prim) -> bool:
     return prim.IsA(UsdGeom.Gprim)
 
@@ -648,14 +692,26 @@ def build_template_hit_test_stage(config: RuntimeConfig) -> SceneBuildResult:
         raise RuntimeError(f"Failed to open template scene: {stage_path}")
 
     slot_path = "/World/TestAssetSlot"
-    injection_path = config.replace_prim or slot_path
-    box_prim_path = "/World/boxActor"
-    replace_target = stage.GetPrimAtPath(injection_path)
-    if config.replace_prim is not None and (not replace_target or not replace_target.IsValid()):
-        raise RuntimeError(f"Template replacement prim does not exist: {config.replace_prim}")
-    replaced_range = compute_world_bbox(stage, replace_target) if config.replace_prim is not None else Gf.Range3d()
+    table_path = config.replace_prim or "/World/roomScene/colliders/table"
+    placement_mode = config.placement_mode
+    if placement_mode == "auto":
+        placement_mode = "replace-table" if config.replace_prim else "tabletop"
+    if placement_mode not in {"replace-table", "tabletop"}:
+        raise ValueError(f"Unsupported placement mode: {config.placement_mode}")
 
-    stage.RemovePrim(injection_path)
+    injection_path = table_path if placement_mode == "replace-table" else slot_path
+    box_prim_path = "/World/boxActor"
+    table_prim = stage.GetPrimAtPath(table_path)
+    if not table_prim or not table_prim.IsValid():
+        raise RuntimeError(f"Template table prim does not exist: {table_path}")
+    replaced_range = compute_world_bbox(stage, table_prim)
+
+    if placement_mode == "replace-table":
+        stage.RemovePrim(injection_path)
+    else:
+        existing_slot = stage.GetPrimAtPath(slot_path)
+        if existing_slot and existing_slot.IsValid():
+            stage.RemovePrim(slot_path)
     injected = UsdGeom.Xform.Define(stage, injection_path)
     injected_prim = injected.GetPrim()
     _clear_xform_ops(injected_prim)
@@ -664,14 +720,18 @@ def build_template_hit_test_stage(config: RuntimeConfig) -> SceneBuildResult:
 
     asset_range_before_align = compute_world_bbox(stage, injected_prim)
     asset_bbox_preserved = True
-    if config.replace_prim is not None and not replaced_range.IsEmpty() and config.size_policy == "template-fit":
+    if placement_mode == "replace-table" and not replaced_range.IsEmpty() and config.size_policy == "template-fit":
         asset_range, fit_scale = fit_asset_to_replaced_footprint(stage, injected_prim, replaced_range)
         fit_mode = "uniform_footprint_to_replaced_prim"
         asset_bbox_preserved = False
-    elif config.replace_prim is not None and not replaced_range.IsEmpty():
+    elif placement_mode == "replace-table" and not replaced_range.IsEmpty():
         asset_range = place_asset_on_replaced_prim_preserving_size(stage, injected_prim, replaced_range)
         fit_scale = None
         fit_mode = "preserve_size_on_replaced_prim"
+    elif placement_mode == "tabletop" and not replaced_range.IsEmpty():
+        asset_range = place_asset_on_tabletop_preserving_size(stage, injected_prim, replaced_range)
+        fit_scale = None
+        fit_mode = "preserve_size_on_tabletop_center"
     else:
         asset_range = align_asset_to_ground(stage, injected_prim)
         fit_scale = None
@@ -717,7 +777,7 @@ def build_template_hit_test_stage(config: RuntimeConfig) -> SceneBuildResult:
         template_scene_path=config.template_scene,
         test_type=test_type,
         asset_prim_path=injection_path,
-        replaced_prim_path=config.replace_prim,
+        replaced_prim_path=table_path if placement_mode == "replace-table" else None,
         box_prim_path=box_prim_path,
         ground_prim_path="",
         collider_prim_paths=collider_paths,
@@ -783,10 +843,15 @@ def _build_external_runtime_command(runtime_python: str, script_path: Path, conf
         command.extend(["--template-scene", template_arg])
     if config.replace_prim:
         command.extend(["--replace-prim", config.replace_prim])
+    command.extend(["--placement-mode", config.placement_mode])
     command.extend(["--hit-mode", config.hit_mode])
     command.extend(["--size-policy", config.size_policy])
     if not config.headless:
         command.append("--no-headless")
+    if config.render_frames:
+        command.append("--render-frames")
+    command.extend(["--render-every-n-frames", str(config.render_every_n_frames)])
+    command.extend(["--render-warmup-updates", str(config.render_warmup_updates)])
 
     if target_platform == "windows":
         runtime_arg = runtime_python
@@ -802,11 +867,25 @@ def _path_in_docker(path: Path, config: RuntimeConfig) -> str:
     root = repo_root().resolve()
     try:
         relative = resolved.relative_to(root)
+        return str(Path(config.docker_workspace) / relative)
+    except ValueError:
+        pass
+
+    inspector_root = Path.home().resolve() / "usd-simready-inspector"
+    try:
+        relative = resolved.relative_to(inspector_root)
+        return str(Path("/workspace/external/usd-simready-inspector") / relative)
+    except ValueError:
+        pass
+
+    home = Path.home().resolve()
+    try:
+        relative = resolved.relative_to(home)
     except ValueError as exc:
         raise ValueError(
-            f"Docker runtime paths must be inside the repository mount: path={resolved}, repo={root}"
+            f"Docker runtime paths must be inside the repository or home mount: path={resolved}, repo={root}, home={home}"
         ) from exc
-    return str(Path(config.docker_workspace) / relative)
+    return str(Path("/workspace/host") / relative)
 
 
 def _build_docker_child_args(script_path: Path, config: RuntimeConfig) -> list[str]:
@@ -827,10 +906,15 @@ def _build_docker_child_args(script_path: Path, config: RuntimeConfig) -> list[s
         command.extend(["--template-scene", _path_in_docker(config.template_scene, config)])
     if config.replace_prim:
         command.extend(["--replace-prim", config.replace_prim])
+    command.extend(["--placement-mode", config.placement_mode])
     command.extend(["--hit-mode", config.hit_mode])
     command.extend(["--size-policy", config.size_policy])
     if not config.headless:
         command.append("--no-headless")
+    if config.render_frames:
+        command.append("--render-frames")
+    command.extend(["--render-every-n-frames", str(config.render_every_n_frames)])
+    command.extend(["--render-warmup-updates", str(config.render_warmup_updates)])
     return command
 
 
@@ -854,6 +938,10 @@ def _build_docker_run_command(script_path: Path, config: RuntimeConfig) -> list[
         "PRIVACY_CONSENT=Y",
         "-v",
         f"{repo_root().resolve()}:{config.docker_workspace}",
+        "-v",
+        f"{Path.home().resolve()}:/workspace/host",
+        "-v",
+        f"{(Path.home().resolve() / 'usd-simready-inspector')}:/workspace/external/usd-simready-inspector",
         "-w",
         config.docker_workspace,
         "--entrypoint",
@@ -1046,6 +1134,45 @@ def _read_box_velocity(stage: Usd.Stage, box_prim_path: str) -> tuple[float, flo
     return _as_tuple(velocity)
 
 
+def _capture_viewport_frame(path: Path) -> str | None:
+    try:
+        from omni.kit.viewport.utility import capture_viewport_to_file, get_active_viewport  # type: ignore
+
+        viewport = get_active_viewport()
+        if viewport is None:
+            return "No active viewport is available for capture."
+        capture_viewport_to_file(viewport, str(path))
+        return None
+    except Exception as exc:  # pragma: no cover - depends on Isaac Sim viewport extension
+        return f"{type(exc).__name__}: {exc}"
+
+
+def _maybe_capture_frame(
+    config: RuntimeConfig,
+    frame: int,
+    *,
+    simulation_app: Any,
+    render_files: list[str],
+    render_errors: list[str],
+) -> None:
+    if not config.render_frames:
+        return
+    every = max(1, config.render_every_n_frames)
+    if frame % every != 0:
+        return
+
+    render_dir = config.out_dir / "render_frames"
+    render_dir.mkdir(parents=True, exist_ok=True)
+    frame_path = render_dir / f"frame_{frame:04d}.png"
+    error = _capture_viewport_frame(frame_path)
+    for _ in range(max(0, config.render_warmup_updates)):
+        simulation_app.update()
+    if error:
+        render_errors.append(f"frame={frame}: {error}")
+        return
+    render_files.append(str(frame_path))
+
+
 def run_simulation(
     config: RuntimeConfig,
     scene: SceneBuildResult,
@@ -1068,6 +1195,8 @@ def run_simulation(
     notes = [f"runtime={runtime_name or 'unavailable'}", f"host_platform={_host_platform()}"]
     samples: list[TimelineSample] = []
     final_state: dict[str, Any] = {}
+    render_files: list[str] = []
+    render_errors: list[str] = []
     owns_simulation_app = simulation_app is None
     if simulation_app is None:
         simulation_app = simulation_app_cls({"headless": config.headless})
@@ -1108,6 +1237,13 @@ def run_simulation(
                     vel_z=velocity[2],
                 )
             )
+            _maybe_capture_frame(
+                config,
+                frame,
+                simulation_app=simulation_app,
+                render_files=render_files,
+                render_errors=render_errors,
+            )
 
         timeline.stop()
         final_sample = samples[-1] if samples else None
@@ -1116,6 +1252,13 @@ def run_simulation(
             "last_frame": final_sample.frame if final_sample else None,
             "box_position": [final_sample.box_x, final_sample.box_y, final_sample.box_z] if final_sample else None,
             "box_velocity": [final_sample.vel_x, final_sample.vel_y, final_sample.vel_z] if final_sample else None,
+            "render_capture": {
+                "enabled": config.render_frames,
+                "frame_count": len(render_files),
+                "output_dir": str(config.out_dir / "render_frames") if config.render_frames else None,
+                "files": render_files[:10],
+                "errors": render_errors[:10],
+            },
         }
         return "passed", samples, final_state, notes
     finally:
@@ -1135,6 +1278,8 @@ def analyze_hit(scene: SceneBuildResult, simulation_status: str, samples: list[T
     box_descended = False
     min_box_z = None
     final_box_z = None
+    initial_box_z = scene.box_initial_position[2] if scene.box_initial_position else None
+    descent_delta = None
 
     if scene.hit_mode == "top-drop":
         if scene.drop_target_xy is None:
@@ -1147,7 +1292,9 @@ def analyze_hit(scene: SceneBuildResult, simulation_status: str, samples: list[T
         last = samples[-1]
         min_box_z = min(sample.box_z for sample in samples)
         final_box_z = last.box_z
-        box_descended = min_box_z < first.box_z
+        reference_box_z = initial_box_z if initial_box_z is not None else first.box_z
+        descent_delta = reference_box_z - min_box_z
+        box_descended = descent_delta > max(abs(reference_box_z) * 1e-5, 1e-4)
 
         if scene.hit_mode == "top-drop" and scene.box_size is not None:
             asset_top = scene.asset_bbox_max[2]
@@ -1163,6 +1310,8 @@ def analyze_hit(scene: SceneBuildResult, simulation_status: str, samples: list[T
         "size_preserved": scene.asset_bbox_preserved,
         "contact_detected_or_inferred": contact_inferred,
         "box_descended": box_descended,
+        "initial_box_z": initial_box_z,
+        "descent_delta": descent_delta,
         "min_box_z": min_box_z,
         "final_box_z": final_box_z,
         "method": "bbox_motion_heuristic",

@@ -46,6 +46,231 @@ python3 -m pip install --no-build-isolation -e .
 python3 -m pip install --no-build-isolation -e ".[validator]"
 ```
 
+### Isaac Sim Docker 测试环境建议
+
+本项目推荐把普通 USD 静态检查和 Isaac Sim runtime 物理检查分开：
+
+- 宿主机 Python 环境负责运行 `omni-asset-cli validate` 和生成报告
+- Isaac Sim Docker 只负责运行 `physics-hit-test` 的碰撞/物理 smoke test
+- 测试资产、模板和输出目录通过仓库挂载在宿主机与容器之间共享
+
+官方容器安装说明参考 NVIDIA Isaac Sim 5.1.0 文档：
+
+```text
+https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_container.html
+```
+
+宿主机建议先确认 GPU 和 Docker 可用：
+
+```bash
+nvidia-smi
+docker run hello-world
+```
+
+安装 NVIDIA Container Toolkit 后，验证 Docker 能访问 GPU：
+
+```bash
+docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
+```
+
+获取 Isaac Sim 5.1.0 镜像：
+
+```bash
+docker pull nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+建议创建 Isaac Sim cache/config/log 目录，减少反复启动时的 shader/cache 初始化成本：
+
+```bash
+mkdir -p ~/docker/isaac-sim/cache/main/ov
+mkdir -p ~/docker/isaac-sim/cache/main/warp
+mkdir -p ~/docker/isaac-sim/cache/computecache
+mkdir -p ~/docker/isaac-sim/config
+mkdir -p ~/docker/isaac-sim/data/documents
+mkdir -p ~/docker/isaac-sim/data/Kit
+mkdir -p ~/docker/isaac-sim/logs
+mkdir -p ~/docker/isaac-sim/pkg
+sudo chown -R 1234:1234 ~/docker/isaac-sim
+```
+
+本项目的最小环境探测命令：
+
+```bash
+python3 omni_asset_cli.py physics-env \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+如果输出里 `probe.ready` 是 `true`，并且 `simulation_app_available` 是 `true`，说明 Isaac Sim Python runtime 可以被 CLI 调用。
+
+推荐的完整测试顺序：
+
+```bash
+python3 omni_asset_cli.py validate examples/minimal_scene.usda \
+  --profile stage1-furniture
+
+python3 omni_asset_cli.py physics-hit-test examples/minimal_scene.usda \
+  --template-scene examples/mini_test.usda \
+  --placement-mode replace-table \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --out out/minimal_scene_docker_hit \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+如果你已经手工启动并验证过一个 Isaac Sim 容器，建议保证它挂载了当前仓库，例如挂到 `/workspace/omni-asset-cli`，然后用 `docker exec` 复用容器：
+
+```bash
+python3 omni_asset_cli.py physics-hit-test examples/minimal_scene.usda \
+  --template-scene examples/mini_test.usda \
+  --placement-mode replace-table \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --out out/minimal_scene_docker_hit \
+  --runtime-docker-container isaac-sim \
+  --docker-workspace /workspace/omni-asset-cli
+```
+
+注意事项：
+
+- Isaac Sim 5.1.0 容器镜像来自 NVIDIA NGC：`nvcr.io/nvidia/isaac-sim:5.1.0`
+- 拉取镜像可能需要先登录 NGC，取决于机器和账号权限
+- 运行容器时需要传入 `ACCEPT_EULA=Y`；`PRIVACY_CONSENT=Y` 表示同意数据收集
+- 如果容器内无法识别 GPU，优先检查 NVIDIA Container Toolkit，并尝试加入 `--runtime=nvidia`
+- 第一次启动 Isaac Sim 通常较慢，后续启动会因为 cache 挂载而更快
+
+### Sample 测试流程
+
+下面是一条从干净 Linux 测试机到完成 USD 静态校验和 Isaac Sim Docker 物理 smoke test 的参考流程。
+
+1. 进入仓库并安装 CLI：
+
+```bash
+cd /path/to/omni-asset-cli
+python3 -m pip install --no-build-isolation -e ".[validator]"
+```
+
+2. 确认宿主机 Docker 和 GPU runtime：
+
+```bash
+nvidia-smi
+docker run hello-world
+docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
+```
+
+3. 获取 Isaac Sim 5.1.0 镜像：
+
+```bash
+docker pull nvcr.io/nvidia/isaac-sim:5.1.0
+docker images nvcr.io/nvidia/isaac-sim
+```
+
+4. 探测本项目能否调用 Isaac Sim Docker：
+
+```bash
+python3 omni_asset_cli.py physics-env \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+期望结果：
+
+```text
+probe.ready = true
+simulation_app_available = true
+simulation_app_name = isaacsim.SimulationApp
+```
+
+5. 跑一个静态 USD validator 检查：
+
+```bash
+python3 omni_asset_cli.py validate examples/minimal_scene.usda \
+  --profile stage1-furniture \
+  --output-json out/minimal_scene_validator.json \
+  --output-md out/minimal_scene_validator.md
+```
+
+6. 跑 Isaac Sim Docker 物理碰撞 smoke test：
+
+```bash
+python3 omni_asset_cli.py physics-hit-test examples/minimal_scene.usda \
+  --template-scene examples/mini_test.usda \
+  --placement-mode replace-table \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --out out/minimal_scene_docker_hit \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+7. 查看输出结果：
+
+```bash
+cat out/minimal_scene_docker_hit/summary.json
+cat out/minimal_scene_docker_hit/runtime_report.json
+head out/minimal_scene_docker_hit/timeline.csv
+```
+
+关键字段：
+
+```text
+result
+checks.asset_loaded
+checks.static_colliders_applied
+checks.dynamic_box_created
+checks.simulation_advanced
+checks.hit_targeted
+checks.size_preserved
+checks.contact_detected_or_inferred
+```
+
+8. 对真实资产重复同样流程：
+
+```bash
+ASSET=examples/boat_test/boat.usd
+OUT=out/boat_docker_hit
+
+python3 omni_asset_cli.py validate "$ASSET" \
+  --profile stage1-furniture \
+  --output-json out/boat_validator.json \
+  --output-md out/boat_validator.md
+
+python3 omni_asset_cli.py physics-hit-test "$ASSET" \
+  --template-scene examples/mini_test.usda \
+  --placement-mode replace-table \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --out "$OUT" \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+Stage 1 家具和摆件使用同一个模板，但放置策略不同：
+
+```bash
+# 家具：替换模板里的桌子
+python3 omni_asset_cli.py physics-hit-test path/to/chair_or_table.usd \
+  --template-scene examples/mini_test.usda \
+  --placement-mode replace-table \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --out out/furniture_template_hit \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+
+# 摆件：保留模板桌子，把资产放到桌面中心
+python3 omni_asset_cli.py physics-hit-test path/to/cup_or_decor.usd \
+  --template-scene examples/mini_test.usda \
+  --placement-mode tabletop \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --out out/prop_tabletop_hit \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+如果你只想快速验证 Docker 链路是否能跑通，可以把 `--frames 240` 临时改成 `--frames 1`。短帧数只验证启动、加载和写出产物，不用于判断真实接触结果。
+
 ### 给人用的核心命令
 
 检查环境：
@@ -136,6 +361,8 @@ Linux 宿主机调用 Isaac Sim Docker 跑碰撞检测：
 
 ```bash
 python3 omni_asset_cli.py physics-hit-test examples/minimal_scene.usda \
+  --template-scene examples/mini_test.usda \
+  --placement-mode replace-table \
   --hit-mode top-drop \
   --size-policy preserve \
   --frames 240 \
@@ -147,6 +374,8 @@ python3 omni_asset_cli.py physics-hit-test examples/minimal_scene.usda \
 
 ```bash
 python3 omni_asset_cli.py physics-hit-test examples/minimal_scene.usda \
+  --template-scene examples/mini_test.usda \
+  --placement-mode replace-table \
   --hit-mode top-drop \
   --size-policy preserve \
   --frames 240 \

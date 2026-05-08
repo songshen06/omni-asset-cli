@@ -112,6 +112,8 @@ def build_physics_hit_test_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--template-scene", args.template_scene])
     if args.replace_prim:
         command.extend(["--replace-prim", args.replace_prim])
+    if args.placement_mode:
+        command.extend(["--placement-mode", args.placement_mode])
     if args.hit_mode:
         command.extend(["--hit-mode", args.hit_mode])
     if args.size_policy:
@@ -136,6 +138,12 @@ def build_physics_hit_test_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--docker-workspace", args.docker_workspace])
     if args.docker_python:
         command.extend(["--docker-python", args.docker_python])
+    if args.render_frames:
+        command.append("--render-frames")
+    if args.render_every_n_frames is not None:
+        command.extend(["--render-every-n-frames", str(args.render_every_n_frames)])
+    if args.render_warmup_updates is not None:
+        command.extend(["--render-warmup-updates", str(args.render_warmup_updates)])
 
     return command
 
@@ -264,6 +272,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     physics_parser.add_argument(
+        "--placement-mode",
+        choices=["auto", "replace-table", "tabletop"],
+        default="auto",
+        help="Template placement strategy. Use replace-table for furniture and tabletop for decor props.",
+    )
+    physics_parser.add_argument(
         "--hit-mode",
         choices=["side-hit", "top-drop"],
         default="side-hit",
@@ -303,6 +317,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--docker-python",
         default="/isaac-sim/python.sh",
         help="Isaac Sim Python launcher path inside the container",
+    )
+    physics_parser.add_argument(
+        "--render-frames",
+        action="store_true",
+        help="Capture headless viewport PNG frames during simulation into OUT/render_frames",
+    )
+    physics_parser.add_argument(
+        "--render-every-n-frames",
+        type=int,
+        default=1,
+        help="Capture every Nth simulation frame when --render-frames is enabled",
+    )
+    physics_parser.add_argument(
+        "--render-warmup-updates",
+        type=int,
+        default=2,
+        help="Extra app updates after each capture request so the PNG writer can flush",
     )
     physics_parser.set_defaults(func=cmd_physics_hit_test)
 

@@ -28,6 +28,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--placement-mode",
+        choices=["auto", "replace-table", "tabletop"],
+        default="auto",
+        help=(
+            "Template placement strategy. Use replace-table for furniture and tabletop for decor props. "
+            "Auto keeps the legacy replace-table default when --replace-prim is set."
+        ),
+    )
+    parser.add_argument(
         "--hit-mode",
         choices=["side-hit", "top-drop"],
         default="side-hit",
@@ -90,6 +99,23 @@ def parse_args() -> argparse.Namespace:
         help="Isaac Sim Python launcher path inside the container",
     )
     parser.add_argument(
+        "--render-frames",
+        action="store_true",
+        help="Capture headless viewport PNG frames during simulation into OUT/render_frames",
+    )
+    parser.add_argument(
+        "--render-every-n-frames",
+        type=int,
+        default=1,
+        help="Capture every Nth simulation frame when --render-frames is enabled",
+    )
+    parser.add_argument(
+        "--render-warmup-updates",
+        type=int,
+        default=2,
+        help="Extra app updates after each capture request so the PNG writer can flush",
+    )
+    parser.add_argument(
         "--external-runtime-child",
         action="store_true",
         help=argparse.SUPPRESS,
@@ -117,6 +143,7 @@ def main() -> int:
         asset=args.asset,
         template_scene=args.template_scene,
         replace_prim=args.replace_prim or None,
+        placement_mode=args.placement_mode,
         hit_mode=args.hit_mode,
         size_policy=args.size_policy,
         out_dir=out_dir,
@@ -129,6 +156,9 @@ def main() -> int:
         runtime_docker_container=args.runtime_docker_container,
         docker_workspace=args.docker_workspace,
         docker_python=args.docker_python,
+        render_frames=args.render_frames,
+        render_every_n_frames=args.render_every_n_frames,
+        render_warmup_updates=args.render_warmup_updates,
     )
     summary, code = execute_hit_test_entry(
         config,
