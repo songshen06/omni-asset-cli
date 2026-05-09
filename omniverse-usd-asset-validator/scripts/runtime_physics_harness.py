@@ -280,6 +280,13 @@ def _read_prim_position(stage: Usd.Stage, prim_path: str) -> tuple[float, float,
     return _as_tuple(transform.ExtractTranslation())
 
 
+def _stage_units_for_meters(stage: Usd.Stage, meters: float) -> float:
+    meters_per_unit = UsdGeom.GetStageMetersPerUnit(stage)
+    if meters_per_unit <= 0:
+        meters_per_unit = 1.0
+    return meters / meters_per_unit
+
+
 def create_base_stage(stage_path: Path, fps: float) -> Usd.Stage:
     stage = Usd.Stage.CreateNew(str(stage_path))
     world = UsdGeom.Xform.Define(stage, "/World")
@@ -318,8 +325,10 @@ def create_ground_plane(stage: Usd.Stage) -> str:
 
 def create_input_asset_prim(stage: Usd.Stage, asset_path: Path) -> Usd.Prim:
     asset_root = UsdGeom.Xform.Define(stage, "/World/InputAsset")
-    asset_root.GetPrim().GetReferences().AddReference(str(asset_path.resolve()))
-    stage.Load(asset_root.GetPrim().GetPath())
+    _clear_xform_ops(asset_root.GetPrim())
+    referenced_asset = UsdGeom.Xform.Define(stage, "/World/InputAsset/ReferencedAsset")
+    referenced_asset.GetPrim().GetReferences().AddReference(str(asset_path.resolve()))
+    stage.Load(referenced_asset.GetPrim().GetPath())
     return asset_root.GetPrim()
 
 
@@ -511,20 +520,25 @@ def create_bbox_collider(stage: Usd.Stage, asset_range: Gf.Range3d, collider_pat
 def create_dynamic_box(stage: Usd.Stage, asset_range: Gf.Range3d) -> tuple[str, tuple[float, float, float], tuple[float, float, float]]:
     box_path = "/World/DynamicHitBox"
     cube = UsdGeom.Cube.Define(stage, box_path)
+    min_span = _stage_units_for_meters(stage, 0.5)
+    min_cube_size = _stage_units_for_meters(stage, 0.2)
+    max_cube_size = _stage_units_for_meters(stage, 0.75)
+    min_velocity = _stage_units_for_meters(stage, 1.5)
 
     if asset_range.IsEmpty():
-        asset_min = Gf.Vec3d(-0.25, -0.25, 0.0)
-        asset_max = Gf.Vec3d(0.25, 0.25, 0.5)
+        half_span = min_span * 0.5
+        asset_min = Gf.Vec3d(-half_span, -half_span, 0.0)
+        asset_max = Gf.Vec3d(half_span, half_span, min_span)
     else:
         asset_min = asset_range.GetMin()
         asset_max = asset_range.GetMax()
 
     span = asset_max - asset_min
-    span_x = max(float(span[0]), 0.5)
-    span_y = max(float(span[1]), 0.5)
-    span_z = max(float(span[2]), 0.5)
+    span_x = max(float(span[0]), min_span)
+    span_y = max(float(span[1]), min_span)
+    span_z = max(float(span[2]), min_span)
     max_span = max(span_x, span_y, span_z)
-    cube_size = max(0.2, min(max_span * 0.25, 0.75))
+    cube_size = max(min_cube_size, min(max_span * 0.25, max_cube_size))
     half_extent = cube_size / 2.0
 
     start_position = Gf.Vec3d(
@@ -532,7 +546,7 @@ def create_dynamic_box(stage: Usd.Stage, asset_range: Gf.Range3d) -> tuple[str, 
         float((asset_min[1] + asset_max[1]) / 2.0),
         float(max(cube_size, asset_min[2] + span_z * 0.5)),
     )
-    start_velocity = Gf.Vec3f(max(1.5, span_x * 2.0), 0.0, 0.0)
+    start_velocity = Gf.Vec3f(max(min_velocity, span_x * 2.0), 0.0, 0.0)
 
     cube.CreateSizeAttr(cube_size)
     cube.CreateExtentAttr(
@@ -564,11 +578,13 @@ def _asset_span(asset_range: Gf.Range3d) -> tuple[Gf.Vec3d, Gf.Vec3d, Gf.Vec3d]:
     return asset_min, asset_max, asset_max - asset_min
 
 
-def compute_top_drop_box_size(asset_range: Gf.Range3d) -> float:
+def compute_top_drop_box_size(stage: Usd.Stage, asset_range: Gf.Range3d) -> float:
     _, _, span = _asset_span(asset_range)
+    min_box_size = _stage_units_for_meters(stage, 0.08)
+    max_box_size = _stage_units_for_meters(stage, 0.75)
     footprint_min = max(min(float(span[0]), float(span[1])), 1e-6)
-    max_span = max(float(span[0]), float(span[1]), float(span[2]), 0.1)
-    return max(0.08, min(footprint_min * 0.45, max_span * 0.25, 0.75))
+    max_span = max(float(span[0]), float(span[1]), float(span[2]), min_box_size)
+    return max(min_box_size, min(footprint_min * 0.45, max_span * 0.25, max_box_size))
 
 
 def create_top_drop_box(
@@ -582,18 +598,20 @@ def create_top_drop_box(
         stage.RemovePrim(box_path)
 
     asset_min, asset_max, span = _asset_span(asset_range)
-    cube_size = compute_top_drop_box_size(asset_range)
+    cube_size = compute_top_drop_box_size(stage, asset_range)
     half_extent = cube_size / 2.0
     target_x = float((asset_min[0] + asset_max[0]) / 2.0)
     target_y = float((asset_min[1] + asset_max[1]) / 2.0)
-    clearance = max(cube_size * 2.0, min(max(float(span[2]), cube_size) * 0.35, 1.5))
+    max_clearance = _stage_units_for_meters(stage, 1.5)
+    min_velocity = _stage_units_for_meters(stage, 0.2)
+    clearance = max(cube_size * 2.0, min(max(float(span[2]), cube_size) * 0.35, max_clearance))
 
     start_position = Gf.Vec3d(
         target_x,
         target_y,
         float(asset_max[2]) + clearance + half_extent,
     )
-    start_velocity = Gf.Vec3f(0.0, 0.0, -max(0.2, cube_size * 0.5))
+    start_velocity = Gf.Vec3f(0.0, 0.0, -max(min_velocity, cube_size * 0.5))
 
     cube = UsdGeom.Cube.Define(stage, box_path)
     cube.CreateSizeAttr(cube_size)
@@ -715,8 +733,9 @@ def build_template_hit_test_stage(config: RuntimeConfig) -> SceneBuildResult:
     injected = UsdGeom.Xform.Define(stage, injection_path)
     injected_prim = injected.GetPrim()
     _clear_xform_ops(injected_prim)
-    injected_prim.GetReferences().AddReference(str(config.asset.resolve()))
-    stage.Load(injected_prim.GetPath())
+    referenced_asset = UsdGeom.Xform.Define(stage, f"{injection_path}/ReferencedAsset")
+    referenced_asset.GetPrim().GetReferences().AddReference(str(config.asset.resolve()))
+    stage.Load(referenced_asset.GetPrim().GetPath())
 
     asset_range_before_align = compute_world_bbox(stage, injected_prim)
     asset_bbox_preserved = True
@@ -1152,6 +1171,7 @@ def _maybe_capture_frame(
     frame: int,
     *,
     simulation_app: Any,
+    timeline: Any | None = None,
     render_files: list[str],
     render_errors: list[str],
 ) -> None:
@@ -1164,9 +1184,22 @@ def _maybe_capture_frame(
     render_dir = config.out_dir / "render_frames"
     render_dir.mkdir(parents=True, exist_ok=True)
     frame_path = render_dir / f"frame_{frame:04d}.png"
+    was_playing = False
+    if timeline is not None:
+        try:
+            was_playing = bool(timeline.is_playing())
+            if was_playing:
+                timeline.pause()
+        except Exception:
+            was_playing = False
     error = _capture_viewport_frame(frame_path)
     for _ in range(max(0, config.render_warmup_updates)):
         simulation_app.update()
+    if was_playing:
+        try:
+            timeline.play()
+        except Exception:
+            pass
     if error:
         render_errors.append(f"frame={frame}: {error}")
         return
@@ -1222,7 +1255,6 @@ def run_simulation(
         timeline.play()
 
         for frame in range(config.frames):
-            simulation_app.update()
             position = _read_box_position(stage, scene.box_prim_path)
             velocity = _read_box_velocity(stage, scene.box_prim_path)
             samples.append(
@@ -1241,9 +1273,11 @@ def run_simulation(
                 config,
                 frame,
                 simulation_app=simulation_app,
+                timeline=timeline,
                 render_files=render_files,
                 render_errors=render_errors,
             )
+            simulation_app.update()
 
         timeline.stop()
         final_sample = samples[-1] if samples else None
