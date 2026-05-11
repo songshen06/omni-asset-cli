@@ -165,6 +165,53 @@ def build_physics_env_command(args: argparse.Namespace) -> list[str]:
     return command
 
 
+def build_simready_flywheel_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(script_path("run_simready_flywheel.py")), args.asset]
+
+    if args.out:
+        command.extend(["--out", args.out])
+    if args.inspector_root:
+        command.extend(["--inspector-root", args.inspector_root])
+    if args.reference_json:
+        command.extend(["--reference-json", args.reference_json])
+    if args.inspector_python:
+        command.extend(["--inspector-python", args.inspector_python])
+    if args.validator_python:
+        command.extend(["--validator-python", args.validator_python])
+    if args.output_format:
+        command.extend(["--output-format", args.output_format])
+    if args.max_prims is not None:
+        command.extend(["--max-prims", str(args.max_prims)])
+    if args.skip_validator:
+        command.append("--skip-validator")
+    if args.skip_runtime:
+        command.append("--skip-runtime")
+    if args.template_scene:
+        command.extend(["--template-scene", args.template_scene])
+    if args.frames is not None:
+        command.extend(["--frames", str(args.frames)])
+    if args.fps is not None:
+        command.extend(["--fps", str(args.fps)])
+    if args.runtime_python:
+        command.extend(["--runtime-python", args.runtime_python])
+    if args.runtime_platform:
+        command.extend(["--runtime-platform", args.runtime_platform])
+    if args.runtime_docker_image:
+        command.extend(["--runtime-docker-image", args.runtime_docker_image])
+    if args.runtime_docker_container:
+        command.extend(["--runtime-docker-container", args.runtime_docker_container])
+    if args.docker_workspace:
+        command.extend(["--docker-workspace", args.docker_workspace])
+    if args.docker_python:
+        command.extend(["--docker-python", args.docker_python])
+    if args.render_frames:
+        command.append("--render-frames")
+    if args.render_every_n_frames is not None:
+        command.extend(["--render-every-n-frames", str(args.render_every_n_frames)])
+
+    return command
+
+
 def cmd_env(_: argparse.Namespace) -> int:
     return passthrough([sys.executable, str(script_path("check_omniverse_asset_validator_env.py"))])
 
@@ -194,6 +241,10 @@ def cmd_physics_hit_test(args: argparse.Namespace) -> int:
 
 def cmd_physics_env(args: argparse.Namespace) -> int:
     return passthrough(build_physics_env_command(args))
+
+
+def cmd_simready_flywheel(args: argparse.Namespace) -> int:
+    return passthrough(build_simready_flywheel_command(args))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -367,6 +418,66 @@ def build_parser() -> argparse.ArgumentParser:
         help="Isaac Sim Python launcher path inside the container",
     )
     physics_env_parser.set_defaults(func=cmd_physics_env)
+
+    flywheel_parser = subparsers.add_parser(
+        "simready-flywheel",
+        help="Run validator defects, SimReady repair, and optional Isaac Sim top-drop retest",
+    )
+    flywheel_parser.add_argument("asset", help="Path to the source USD asset")
+    flywheel_parser.add_argument("--out", help="Output directory for flywheel artifacts")
+    flywheel_parser.add_argument(
+        "--inspector-root",
+        default=str(Path.home() / "usd-simready-inspector"),
+        help="Path to the usd-simready-inspector checkout",
+    )
+    flywheel_parser.add_argument(
+        "--reference-json",
+        default=str(Path.home() / "usd-simready-inspector" / "simready_furniture_reference_with_wikidata.json"),
+        help="Static furniture reference JSON for recommendation",
+    )
+    flywheel_parser.add_argument("--inspector-python", help="Python executable for usd-simready-inspector")
+    flywheel_parser.add_argument("--validator-python", help="Python executable for omni-asset-cli validator scripts")
+    flywheel_parser.add_argument(
+        "--output-format",
+        choices=["usda", "usdc"],
+        default="usdc",
+        help="Format for the repaired SimReady USD",
+    )
+    flywheel_parser.add_argument("--max-prims", type=int, default=0)
+    flywheel_parser.add_argument("--skip-validator", action="store_true")
+    flywheel_parser.add_argument("--skip-runtime", action="store_true")
+    flywheel_parser.add_argument(
+        "--template-scene",
+        default=str(REPO_ROOT / "examples" / "mini_test.usda"),
+        help="Isaac Sim physics template scene used by the top-drop runtime test",
+    )
+    flywheel_parser.add_argument("--frames", type=int, default=240)
+    flywheel_parser.add_argument("--fps", type=float, default=60.0)
+    flywheel_parser.add_argument("--runtime-python", help="Optional Isaac Sim python launcher path")
+    flywheel_parser.add_argument(
+        "--runtime-platform",
+        choices=["auto", "linux", "windows"],
+        default="auto",
+        help="Target runtime platform when using an external Isaac Sim python",
+    )
+    flywheel_parser.add_argument(
+        "--runtime-docker-image",
+        help="Optional Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
+    )
+    flywheel_parser.add_argument("--runtime-docker-container", help="Optional running Isaac Sim container name or ID")
+    flywheel_parser.add_argument(
+        "--docker-workspace",
+        default="/workspace/omni-asset-cli",
+        help="Repository mount path inside the Isaac Sim container",
+    )
+    flywheel_parser.add_argument(
+        "--docker-python",
+        default="/isaac-sim/python.sh",
+        help="Isaac Sim Python launcher path inside the container",
+    )
+    flywheel_parser.add_argument("--render-frames", action="store_true")
+    flywheel_parser.add_argument("--render-every-n-frames", type=int, default=1)
+    flywheel_parser.set_defaults(func=cmd_simready_flywheel)
 
     return parser
 
