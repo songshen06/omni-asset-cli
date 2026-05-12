@@ -51,8 +51,9 @@ python3 -m pip install --no-build-isolation -e ".[validator]"
 本项目推荐把普通 USD 静态检查和 Isaac Sim runtime 物理检查分开：
 
 - 宿主机 Python 环境负责运行 `omni-asset-cli validate` 和生成报告
-- Isaac Sim Docker 只负责运行 `physics-hit-test` 的碰撞/物理 smoke test
+- Linux + Isaac Sim Docker 负责运行 `physics-hit-test` 的碰撞/物理 smoke test
 - 测试资产、模板和输出目录通过仓库挂载在宿主机与容器之间共享
+- 运行 Docker runtime 前，输入资产包必须在容器可读的挂载路径内；推荐放到仓库下，外部 home 目录资产会被 staging 到 `out/runtime_inputs/`
 
 官方容器安装说明参考 NVIDIA Isaac Sim 5.1.0 文档：
 
@@ -221,8 +222,13 @@ checks.dynamic_box_created
 checks.simulation_advanced
 checks.hit_targeted
 checks.size_preserved
+checks.contact_report_detected
 checks.contact_detected_or_inferred
+contact_evidence_level
 ```
+
+`checks.contact_report_detected` 来自 PhysX contact report，是比 bbox 运动轨迹推断更强的证据。
+`contact_evidence_level` 为 `detected` 时表示报告里有真实 contact event；为 `inferred` 时表示只满足轨迹推断条件。
 
 8. 对真实资产重复同样流程：
 
@@ -325,36 +331,11 @@ omni-asset-cli physics-hit-test path/to/chair.usd \
 
 `examples/mini_test.usda` 是 Stage 1 家具/摆件模板场景：它包含桌面、静态碰撞体和动态 `/World/boxActor`。Stage 1 推荐使用 `--hit-mode top-drop --size-policy preserve`，保持目标资产真实 bbox，只把它放到模板目标位置，然后按资产 bbox 中心把 box 放到上方掉落。top-drop 会额外生成一个按资产 bbox 对齐的静态 guide collider，保证 smoke test 有确定碰撞目标。旧的 `template-fit` 模式仍可把资产缩放到原 table footprint，但不作为尺寸准确性测试的推荐路径。
 
-先做 runtime 环境探测：
-
-```bash
-python3 omni_asset_cli.py physics-env --runtime-python C:\\isaacsim\\python.bat --runtime-platform windows
-```
-
-使用 Isaac Sim Docker 做 runtime 环境探测：
+先在 Linux 宿主机上用 Isaac Sim Docker 做 runtime 环境探测：
 
 ```bash
 python3 omni_asset_cli.py physics-env \
   --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
-```
-
-如果当前解释器不是 Isaac Sim Python，也可以显式指定 runtime：
-
-Linux:
-
-```bash
-omni-asset-cli physics-hit-test path/to/chair.usd \
-  --runtime-python ~/.local/share/ov/pkg/isaac-sim-*/python.sh \
-  --runtime-platform linux
-```
-
-WSL 调 Windows Isaac Sim:
-
-```bash
-python3 omni_asset_cli.py physics-hit-test /mnt/c/path/to/chair.usd \
-  --out /mnt/c/path/to/artifacts/chair_hit \
-  --runtime-python C:\\isaacsim\\python.bat \
-  --runtime-platform windows
 ```
 
 Linux 宿主机调用 Isaac Sim Docker 跑碰撞检测：
@@ -384,7 +365,7 @@ python3 omni_asset_cli.py physics-hit-test examples/minimal_scene.usda \
   --docker-workspace /workspace/omni-asset-cli
 ```
 
-`physics-hit-test` 会优先在当前解释器中直接运行；如果当前解释器没有 `SimulationApp`，则会尝试切换到外部 Isaac Sim Python。默认输出目录改为仓库内 `out/`，便于 Linux / Windows 共享访问。
+`physics-hit-test` 的权威 runtime 验证只支持 Linux + Isaac Sim Docker。宿主机 Python 只负责调度 Docker；容器内子进程负责加载 `SimulationApp` 并写出 `summary.json`、`runtime_report.json` 和 `timeline.csv`。
 
 ### 给 AI agent 用的命令
 
@@ -462,6 +443,8 @@ setup.py
 
 - `omniverse-usd-asset-validator/SKILL.md`
 - `omniverse-usd-asset-validator/references/`
+- `omniverse-usd-asset-validator/references/agent-bootstrap-deployment.md`
+- `omniverse-usd-asset-validator/references/test-environment-deployment.md`
 
 ## English
 
@@ -563,32 +546,14 @@ omni-asset-cli physics-hit-test path/to/chair.usd \
 
 `examples/mini_test.usda` is the Stage 1 furniture/prop template scene. It contains a table, static colliders, and the dynamic `/World/boxActor`. The recommended Stage 1 runtime path is `--hit-mode top-drop --size-policy preserve`: keep the target asset's real bbox, place it at the template target location, then place the dynamic box above the asset bbox center so gravity drives a deterministic drop. Top-drop also authors a static guide collider aligned to the asset bbox so the smoke test has a deterministic collision target. The legacy `template-fit` path can still scale the asset to the original table footprint, but it is not the recommended size-accuracy test.
 
-Check the runtime environment first:
+Check the Linux + Isaac Sim Docker runtime environment first:
 
 ```bash
-python3 omni_asset_cli.py physics-env --runtime-python C:\\isaacsim\\python.bat --runtime-platform windows
+python3 omni_asset_cli.py physics-env \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
 ```
 
-If the current interpreter is not Isaac Sim Python, you can point the command at an external runtime:
-
-Linux:
-
-```bash
-omni-asset-cli physics-hit-test path/to/chair.usd \
-  --runtime-python ~/.local/share/ov/pkg/isaac-sim-*/python.sh \
-  --runtime-platform linux
-```
-
-WSL to Windows Isaac Sim:
-
-```bash
-python3 omni_asset_cli.py physics-hit-test /mnt/c/path/to/chair.usd \
-  --out /mnt/c/path/to/artifacts/chair_hit \
-  --runtime-python C:\\isaacsim\\python.bat \
-  --runtime-platform windows
-```
-
-`physics-hit-test` first tries to run in the current interpreter. If `SimulationApp` is unavailable, it can dispatch to an external Isaac Sim Python. The default output directory is now `out/` inside the repo so the artifacts stay accessible from both Linux and Windows.
+Authoritative `physics-hit-test` runtime validation only supports Linux + Isaac Sim Docker. Host Python only dispatches Docker; the container child process loads `SimulationApp` and writes `summary.json`, `runtime_report.json`, and `timeline.csv`.
 
 ### Commands for AI Agents
 
@@ -666,3 +631,5 @@ Further documentation:
 
 - `omniverse-usd-asset-validator/SKILL.md`
 - `omniverse-usd-asset-validator/references/`
+- `omniverse-usd-asset-validator/references/agent-bootstrap-deployment.md`
+- `omniverse-usd-asset-validator/references/test-environment-deployment.md`

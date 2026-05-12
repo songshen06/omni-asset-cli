@@ -126,10 +126,6 @@ def build_physics_hit_test_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--out", args.out])
     if args.no_headless:
         command.append("--no-headless")
-    if args.runtime_python:
-        command.extend(["--runtime-python", args.runtime_python])
-    if args.runtime_platform:
-        command.extend(["--runtime-platform", args.runtime_platform])
     if args.runtime_docker_image:
         command.extend(["--runtime-docker-image", args.runtime_docker_image])
     if args.runtime_docker_container:
@@ -150,10 +146,6 @@ def build_physics_hit_test_command(args: argparse.Namespace) -> list[str]:
 
 def build_physics_env_command(args: argparse.Namespace) -> list[str]:
     command = [sys.executable, str(script_path("check_physics_runtime_env.py"))]
-    if args.runtime_python:
-        command.extend(["--runtime-python", args.runtime_python])
-    if args.runtime_platform:
-        command.extend(["--runtime-platform", args.runtime_platform])
     if args.runtime_docker_image:
         command.extend(["--runtime-docker-image", args.runtime_docker_image])
     if args.runtime_docker_container:
@@ -192,10 +184,6 @@ def build_simready_flywheel_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--frames", str(args.frames)])
     if args.fps is not None:
         command.extend(["--fps", str(args.fps)])
-    if args.runtime_python:
-        command.extend(["--runtime-python", args.runtime_python])
-    if args.runtime_platform:
-        command.extend(["--runtime-platform", args.runtime_platform])
     if args.runtime_docker_image:
         command.extend(["--runtime-docker-image", args.runtime_docker_image])
     if args.runtime_docker_container:
@@ -344,16 +332,9 @@ def build_parser() -> argparse.ArgumentParser:
     physics_parser.add_argument("--fps", type=float, default=60.0, help="Simulation frames per second")
     physics_parser.add_argument("--out", help="Output directory for runtime artifacts")
     physics_parser.add_argument("--no-headless", action="store_true", help="Disable headless runtime mode")
-    physics_parser.add_argument("--runtime-python", help="Optional Isaac Sim python launcher path")
-    physics_parser.add_argument(
-        "--runtime-platform",
-        choices=["auto", "linux", "windows"],
-        default="auto",
-        help="Target runtime platform when using an external Isaac Sim python",
-    )
     physics_parser.add_argument(
         "--runtime-docker-image",
-        help="Optional Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
+        help="Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
     )
     physics_parser.add_argument(
         "--runtime-docker-container",
@@ -390,18 +371,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     physics_env_parser = subparsers.add_parser(
         "physics-env",
-        help="Check whether the runtime physics harness can launch Isaac Sim in the current environment",
-    )
-    physics_env_parser.add_argument("--runtime-python", help="Optional Isaac Sim python launcher path")
-    physics_env_parser.add_argument(
-        "--runtime-platform",
-        choices=["auto", "linux", "windows"],
-        default="auto",
-        help="Target runtime platform when using an external Isaac Sim python",
+        help="Check Linux + Isaac Sim Docker runtime readiness",
     )
     physics_env_parser.add_argument(
         "--runtime-docker-image",
-        help="Optional Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
+        help="Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
     )
     physics_env_parser.add_argument(
         "--runtime-docker-container",
@@ -453,16 +427,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     flywheel_parser.add_argument("--frames", type=int, default=240)
     flywheel_parser.add_argument("--fps", type=float, default=60.0)
-    flywheel_parser.add_argument("--runtime-python", help="Optional Isaac Sim python launcher path")
-    flywheel_parser.add_argument(
-        "--runtime-platform",
-        choices=["auto", "linux", "windows"],
-        default="auto",
-        help="Target runtime platform when using an external Isaac Sim python",
-    )
     flywheel_parser.add_argument(
         "--runtime-docker-image",
-        help="Optional Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
+        help="Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
     )
     flywheel_parser.add_argument("--runtime-docker-container", help="Optional running Isaac Sim container name or ID")
     flywheel_parser.add_argument(

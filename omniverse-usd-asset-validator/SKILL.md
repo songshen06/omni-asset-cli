@@ -70,7 +70,8 @@ omni-asset-cli physics-hit-test path/to/asset.usd \
   --replace-prim /World/roomScene/colliders/table \
   --hit-mode top-drop \
   --size-policy preserve \
-  --out out/asset_top_drop
+  --out out/asset_top_drop \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
 ```
 
 ## Natural-Language Handling Rules
@@ -78,6 +79,8 @@ omni-asset-cli physics-hit-test path/to/asset.usd \
 - Default to read-only validation and do not add `--fix` unless the user asks.
 - Keep the default rules unless the user explicitly narrows the scope.
 - Map furniture, furnishings, decor props, Stage 1, 家具, 摆件, 装饰道具 prompts to `--profile stage1-furniture`.
+- For Stage 1 runtime checks, use Linux + Isaac Sim Docker only. Do not substitute host Python or non-container runtimes for authoritative physics results.
+- For Docker runtime checks, make the input asset container-readable. Prefer repository paths; for assets elsewhere under the host home directory, stage the package directory under `out/runtime_inputs/` or rely on the runtime harness auto-staging and report the staged path.
 - For Stage 1 runtime checks, prefer `--hit-mode top-drop --size-policy preserve` so the asset keeps its real bbox and the box is aimed above the bbox center.
 - Fall back to standard validation if the prompt does not match a specific rule.
 - Prefer `KindChecker` only when the user explicitly asks about Isaac Sim, SimReady, hierarchy, or component semantics.
@@ -121,3 +124,5 @@ Operational states:
 - `references/human-operator-guide.md`
 - `references/natural-language-to-args.md`
 - `references/kind-checker-explained.md`
+- `references/agent-bootstrap-deployment.md`
+- `references/test-environment-deployment.md`

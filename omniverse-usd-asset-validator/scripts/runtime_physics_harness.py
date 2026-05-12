@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import platform
 import shutil
 import subprocess
@@ -23,20 +22,36 @@ except ImportError:  # Allows host-side Docker dispatch without local USD Python
     UsdGeom = None  # type: ignore[assignment]
     UsdPhysics = None  # type: ignore[assignment]
 
+try:
+    from pxr import PhysicsSchemaTools, PhysxSchema
+except ImportError:
+    PhysicsSchemaTools = None  # type: ignore[assignment]
+    PhysxSchema = None  # type: ignore[assignment]
+
 
 def _ensure_pxr_loaded() -> None:
-    global Gf, Usd, UsdGeom, UsdPhysics
-    if all(module is not None for module in (Gf, Usd, UsdGeom, UsdPhysics)):
-        return
-    from pxr import Gf as _Gf
-    from pxr import Usd as _Usd
-    from pxr import UsdGeom as _UsdGeom
-    from pxr import UsdPhysics as _UsdPhysics
+    global Gf, Usd, UsdGeom, UsdPhysics, PhysicsSchemaTools, PhysxSchema
+    if any(module is None for module in (Gf, Usd, UsdGeom, UsdPhysics)):
+        from pxr import Gf as _Gf
+        from pxr import Usd as _Usd
+        from pxr import UsdGeom as _UsdGeom
+        from pxr import UsdPhysics as _UsdPhysics
 
-    Gf = _Gf
-    Usd = _Usd
-    UsdGeom = _UsdGeom
-    UsdPhysics = _UsdPhysics
+        Gf = _Gf
+        Usd = _Usd
+        UsdGeom = _UsdGeom
+        UsdPhysics = _UsdPhysics
+
+    if PhysicsSchemaTools is None or PhysxSchema is None:
+        try:
+            from pxr import PhysicsSchemaTools as _PhysicsSchemaTools
+            from pxr import PhysxSchema as _PhysxSchema
+
+            PhysicsSchemaTools = _PhysicsSchemaTools
+            PhysxSchema = _PhysxSchema
+        except ImportError:
+            PhysicsSchemaTools = None  # type: ignore[assignment]
+            PhysxSchema = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -51,8 +66,6 @@ class RuntimeConfig:
     frames: int = 240
     fps: float = 60.0
     headless: bool = True
-    runtime_python: str | None = None
-    runtime_platform: str = "auto"
     runtime_docker_image: str | None = None
     runtime_docker_container: str | None = None
     docker_workspace: str = "/workspace/omni-asset-cli"
@@ -72,6 +85,18 @@ class TimelineSample:
     vel_x: float
     vel_y: float
     vel_z: float
+
+
+@dataclass
+class ContactEventSample:
+    frame: int
+    event_type: int
+    actor0: str
+    actor1: str
+    collider0: str
+    collider1: str
+    num_contacts: int
+    target_kind: str
 
 
 @dataclass
@@ -122,126 +147,6 @@ def _host_platform() -> str:
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
-
-
-def is_wsl() -> bool:
-    return bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
-
-
-def _is_windows_runtime_path(path_value: str) -> bool:
-    lower = path_value.lower()
-    return lower.endswith(".bat") or lower.endswith(".exe") or ":\\" in path_value or ":/" in path_value
-
-
-def normalize_runtime_python_path(raw_path: str) -> str:
-    if _host_platform() == "linux" and _is_windows_runtime_path(raw_path):
-        windows_style = raw_path.replace("/", "\\")
-        drive, _, tail = windows_style.partition(":\\")
-        if drive and tail:
-            return f"/mnt/{drive.lower()}/{tail.replace(chr(92), '/')}"
-    return raw_path
-
-
-def default_windows_runtime_python_wsl() -> str | None:
-    if not is_wsl():
-        return None
-
-    for candidate in (
-        Path("/mnt/c/isaacsim/python.bat"),
-        Path("/mnt/c/isaacsim/python.exe"),
-    ):
-        if candidate.exists():
-            return str(candidate)
-    return None
-
-
-def _wsl_path_convert(path: Path, mode: str) -> str | None:
-    try:
-        completed = subprocess.run(
-            ["wslpath", mode, str(path)],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        return None
-
-    if completed.returncode != 0:
-        return None
-    return completed.stdout.strip() or None
-
-
-def _convert_path_for_target(path: Path, target_platform: str) -> str:
-    resolved = path.resolve()
-    host_platform = _host_platform()
-    if target_platform == host_platform:
-        return str(resolved)
-    if host_platform == "linux" and target_platform == "windows":
-        converted = _wsl_path_convert(resolved, "-w")
-        if converted:
-            return converted
-    return str(resolved)
-
-
-def _infer_runtime_platform(runtime_python: str | None, requested_platform: str) -> str:
-    if requested_platform in {"linux", "windows"}:
-        return requested_platform
-    if runtime_python and _is_windows_runtime_path(runtime_python):
-        return "windows"
-    return _host_platform()
-
-
-def _candidate_runtime_paths() -> list[str]:
-    candidates: list[str] = []
-
-    for env_name in ("OMNI_ASSET_CLI_RUNTIME_PYTHON", "ISAACSIM_PYTHON", "ISAACSIM_PYTHON_EXE"):
-        value = os.environ.get(env_name)
-        if value:
-            candidates.append(value)
-
-    home = Path.home()
-    for path in sorted(home.glob(".local/share/ov/pkg/isaac-sim-*/python.sh"), reverse=True):
-        candidates.append(str(path))
-    for path in sorted(home.glob("isaacsim/python.sh"), reverse=True):
-        candidates.append(str(path))
-
-    wsl_windows_runtime = default_windows_runtime_python_wsl()
-    if wsl_windows_runtime:
-        candidates.append(wsl_windows_runtime)
-
-    # Do not auto-switch from WSL/Linux into Windows Isaac Sim.
-    # Cross-platform dispatch stays opt-in through --runtime-python.
-    if _host_platform() == "windows":
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if local_app_data:
-            for path in sorted(Path(local_app_data).glob("ov/pkg/isaac-sim-*/python.bat"), reverse=True):
-                candidates.append(str(path))
-        for path in (
-            Path("C:/isaacsim/python.bat"),
-            Path("C:/isaacsim/python.exe"),
-            Path("C:/Program Files/NVIDIA Corporation/Isaac Sim/python.bat"),
-        ):
-            if path.exists():
-                candidates.append(str(path))
-
-    deduped: list[str] = []
-    for value in candidates:
-        if value not in deduped:
-            deduped.append(value)
-    return deduped
-
-
-def discover_runtime_python(config: RuntimeConfig) -> str | None:
-    if config.runtime_python:
-        candidate = normalize_runtime_python_path(config.runtime_python)
-        if Path(candidate).exists():
-            return candidate
-        return config.runtime_python
-
-    for candidate in _candidate_runtime_paths():
-        if Path(candidate).exists():
-            return candidate
-    return None
 
 
 def _as_tuple(vec: Gf.Vec3d | Gf.Vec3f) -> tuple[float, float, float]:
@@ -487,6 +392,14 @@ def apply_static_colliders(asset_root: Usd.Prim) -> list[str]:
     return [str(asset_root.GetPath())]
 
 
+def apply_contact_report(prim: Usd.Prim, threshold: float = 0.0) -> bool:
+    if PhysxSchema is None:
+        return False
+    contact_report = PhysxSchema.PhysxContactReportAPI.Apply(prim)
+    contact_report.CreateThresholdAttr().Set(threshold)
+    return True
+
+
 def create_bbox_collider(stage: Usd.Stage, asset_range: Gf.Range3d, collider_path: str = "/World/TopDropBBoxCollider") -> str | None:
     if asset_range.IsEmpty():
         return None
@@ -564,6 +477,7 @@ def create_dynamic_box(stage: Usd.Stage, asset_range: Gf.Range3d) -> tuple[str, 
     rigid_body.CreateAngularVelocityAttr().Set(Gf.Vec3f(0.0, 0.0, 0.0))
     mass = UsdPhysics.MassAPI.Apply(box_prim)
     mass.CreateMassAttr().Set(1.0)
+    apply_contact_report(box_prim)
 
     return str(box_prim.GetPath()), _as_tuple(start_position), _as_tuple(start_velocity)
 
@@ -628,6 +542,7 @@ def create_top_drop_box(
     rigid_body.CreateAngularVelocityAttr().Set(Gf.Vec3f(0.0, 0.0, 0.0))
     mass = UsdPhysics.MassAPI.Apply(box_prim)
     mass.CreateMassAttr().Set(1.0)
+    apply_contact_report(box_prim)
 
     return str(box_prim.GetPath()), _as_tuple(start_position), _as_tuple(start_velocity), cube_size, (target_x, target_y)
 
@@ -773,6 +688,7 @@ def build_template_hit_test_stage(config: RuntimeConfig) -> SceneBuildResult:
             raise RuntimeError(f"Template dynamic actor does not exist: {box_prim_path}")
         if not box_prim.HasAPI(UsdPhysics.RigidBodyAPI):
             raise RuntimeError(f"Template dynamic actor is not a rigid body: {box_prim_path}")
+        apply_contact_report(box_prim)
         box_initial_position = _read_prim_position(stage, box_prim_path)
         box_initial_velocity = _read_box_velocity(stage, box_prim_path)
         box_size = None
@@ -834,53 +750,6 @@ def _load_simulation_app():
         return None, None
 
 
-def _build_external_runtime_command(runtime_python: str, script_path: Path, config: RuntimeConfig) -> list[str]:
-    target_platform = _infer_runtime_platform(runtime_python, config.runtime_platform)
-    asset_arg = _convert_path_for_target(config.asset, target_platform)
-    out_arg = _convert_path_for_target(config.out_dir, target_platform)
-    script_arg = _convert_path_for_target(script_path, target_platform)
-    template_arg = (
-        _convert_path_for_target(config.template_scene, target_platform)
-        if config.template_scene is not None
-        else None
-    )
-
-    command = [
-        script_arg,
-        asset_arg,
-        "--frames",
-        str(config.frames),
-        "--fps",
-        str(config.fps),
-        "--out",
-        out_arg,
-        "--runtime-platform",
-        target_platform,
-        "--external-runtime-child",
-    ]
-    if template_arg is not None:
-        command.extend(["--template-scene", template_arg])
-    if config.replace_prim:
-        command.extend(["--replace-prim", config.replace_prim])
-    command.extend(["--placement-mode", config.placement_mode])
-    command.extend(["--hit-mode", config.hit_mode])
-    command.extend(["--size-policy", config.size_policy])
-    if not config.headless:
-        command.append("--no-headless")
-    if config.render_frames:
-        command.append("--render-frames")
-    command.extend(["--render-every-n-frames", str(config.render_every_n_frames)])
-    command.extend(["--render-warmup-updates", str(config.render_warmup_updates)])
-
-    if target_platform == "windows":
-        runtime_arg = runtime_python
-        if _host_platform() == "linux":
-            runtime_arg = _convert_path_for_target(Path(runtime_python), "windows")
-        return ["cmd.exe", "/C", runtime_arg, *command]
-
-    return [runtime_python, *command]
-
-
 def _path_in_docker(path: Path, config: RuntimeConfig) -> str:
     resolved = path.resolve()
     root = repo_root().resolve()
@@ -899,12 +768,43 @@ def _path_in_docker(path: Path, config: RuntimeConfig) -> str:
 
     home = Path.home().resolve()
     try:
-        relative = resolved.relative_to(home)
+        resolved.relative_to(home)
     except ValueError as exc:
         raise ValueError(
             f"Docker runtime paths must be inside the repository or home mount: path={resolved}, repo={root}, home={home}"
         ) from exc
-    return str(Path("/workspace/host") / relative)
+
+    staged = _stage_host_path_for_docker(resolved)
+    relative = staged.relative_to(root)
+    return str(Path(config.docker_workspace) / relative)
+
+
+def _safe_stage_name(path: Path) -> str:
+    name = path.name or path.stem or "asset"
+    return "".join(char if char.isalnum() or char in {"-", "_", "."} else "_" for char in name)
+
+
+def _stage_host_path_for_docker(path: Path) -> Path:
+    root = repo_root().resolve()
+    stage_root = root / "out" / "runtime_inputs"
+    home = Path.home().resolve()
+
+    if path.is_dir():
+        destination = stage_root / _safe_stage_name(path)
+        shutil.copytree(path, destination, dirs_exist_ok=True)
+        return destination
+
+    if path.parent == home:
+        destination_dir = stage_root / _safe_stage_name(path.with_suffix(""))
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / path.name
+        shutil.copy2(path, destination)
+        return destination
+
+    package_root = path.parent
+    destination_root = stage_root / _safe_stage_name(package_root)
+    shutil.copytree(package_root, destination_root, dirs_exist_ok=True)
+    return destination_root / path.relative_to(package_root)
 
 
 def _build_docker_child_args(script_path: Path, config: RuntimeConfig) -> list[str]:
@@ -917,8 +817,6 @@ def _build_docker_child_args(script_path: Path, config: RuntimeConfig) -> list[s
         str(config.fps),
         "--out",
         _path_in_docker(config.out_dir, config),
-        "--runtime-platform",
-        "linux",
         "--external-runtime-child",
     ]
     if config.template_scene is not None:
@@ -1021,73 +919,52 @@ def _clear_runtime_artifacts(out_dir: Path) -> None:
 
 
 def run_external_runtime(script_path: Path, config: RuntimeConfig) -> tuple[dict[str, Any], int] | None:
-    if config.runtime_docker_container or config.runtime_docker_image:
-        _prepare_docker_output_dir(config.out_dir)
-        _clear_runtime_artifacts(config.out_dir)
-        command = (
-            _build_docker_exec_command(script_path, config)
-            if config.runtime_docker_container
-            else _build_docker_run_command(script_path, config)
-        )
-        completed = subprocess.run(command, check=False)
-        payload = _load_summary_payload(config.out_dir)
-
-        if payload is None:
-            summary_payload = {
-                "asset": str(config.asset),
-                "test_type": _test_type_for_config(config),
-                "result": "blocked",
-                "frames": config.frames,
-                "hit_mode": config.hit_mode,
-                "size_policy": config.size_policy,
-                "checks": {
-                    "asset_loaded": False,
-                    "static_colliders_applied": False,
-                    "dynamic_box_created": False,
-                    "simulation_advanced": False,
-                    "hit_targeted": False,
-                    "size_preserved": False,
-                    "contact_detected_or_inferred": False,
-                    "artifacts_written": True,
-                },
-                "notes": [
-                    f"Docker runtime command failed to produce summary.json: returncode={completed.returncode}",
-                    f"runtime_docker_image={config.runtime_docker_image}",
-                    f"runtime_docker_container={config.runtime_docker_container}",
-                ],
-            }
-            report_payload = {
-                "input_usd_path": str(config.asset),
-                "template_scene_path": str(config.template_scene) if config.template_scene is not None else None,
-                "replace_prim": config.replace_prim,
-                "hit_mode": config.hit_mode,
-                "size_policy": config.size_policy,
-                "external_runtime": {
-                    "runtime_docker_image": config.runtime_docker_image,
-                    "runtime_docker_container": config.runtime_docker_container,
-                    "command": command,
-                    "returncode": completed.returncode,
-                },
-            }
-            write_json(config.out_dir / "summary.json", summary_payload)
-            write_json(config.out_dir / "runtime_report.json", report_payload)
-            write_timeline_csv(config.out_dir, [])
-            payload = summary_payload
-        else:
-            payload.setdefault("notes", [])
-            if config.runtime_docker_container:
-                payload["notes"].append(f"external_runtime_docker_container={config.runtime_docker_container}")
-            else:
-                payload["notes"].append(f"external_runtime_docker_image={config.runtime_docker_image}")
-
-        return payload, completed.returncode
-
-    runtime_python = discover_runtime_python(config)
-    if runtime_python is None:
+    if not (config.runtime_docker_container or config.runtime_docker_image):
         return None
+    if _host_platform() != "linux":
+        summary_payload = {
+            "asset": str(config.asset),
+            "test_type": _test_type_for_config(config),
+            "result": "blocked",
+            "frames": config.frames,
+            "hit_mode": config.hit_mode,
+            "size_policy": config.size_policy,
+            "checks": {
+                "asset_loaded": False,
+                "static_colliders_applied": False,
+                "dynamic_box_created": False,
+                "simulation_advanced": False,
+                "hit_targeted": False,
+                "size_preserved": False,
+                "contact_report_detected": False,
+                "contact_detected_or_inferred": False,
+                "artifacts_written": True,
+            },
+            "notes": [
+                "Runtime physics validation requires a Linux host with Isaac Sim Docker.",
+                f"host_platform={_host_platform()}",
+            ],
+        }
+        report_payload = {
+            "input_usd_path": str(config.asset),
+            "template_scene_path": str(config.template_scene) if config.template_scene is not None else None,
+            "replace_prim": config.replace_prim,
+            "hit_mode": config.hit_mode,
+            "size_policy": config.size_policy,
+            "runtime_policy": "linux_docker_only",
+        }
+        write_json(config.out_dir / "summary.json", summary_payload)
+        write_json(config.out_dir / "runtime_report.json", report_payload)
+        write_timeline_csv(config.out_dir, [])
+        return summary_payload, 2
 
+    _prepare_docker_output_dir(config.out_dir)
     _clear_runtime_artifacts(config.out_dir)
-    command = _build_external_runtime_command(runtime_python, script_path, config)
+    command = (
+        _build_docker_exec_command(script_path, config)
+        if config.runtime_docker_container
+        else _build_docker_run_command(script_path, config)
+    )
     completed = subprocess.run(command, check=False)
     payload = _load_summary_payload(config.out_dir)
 
@@ -1106,12 +983,14 @@ def run_external_runtime(script_path: Path, config: RuntimeConfig) -> tuple[dict
                 "simulation_advanced": False,
                 "hit_targeted": False,
                 "size_preserved": False,
+                "contact_report_detected": False,
                 "contact_detected_or_inferred": False,
                 "artifacts_written": True,
             },
             "notes": [
-                f"External runtime command failed to produce summary.json: returncode={completed.returncode}",
-                f"runtime_python={runtime_python}",
+                f"Docker runtime command failed to produce summary.json: returncode={completed.returncode}",
+                f"runtime_docker_image={config.runtime_docker_image}",
+                f"runtime_docker_container={config.runtime_docker_container}",
             ],
         }
         report_payload = {
@@ -1121,7 +1000,8 @@ def run_external_runtime(script_path: Path, config: RuntimeConfig) -> tuple[dict
             "hit_mode": config.hit_mode,
             "size_policy": config.size_policy,
             "external_runtime": {
-                "runtime_python": runtime_python,
+                "runtime_docker_image": config.runtime_docker_image,
+                "runtime_docker_container": config.runtime_docker_container,
                 "command": command,
                 "returncode": completed.returncode,
             },
@@ -1132,7 +1012,10 @@ def run_external_runtime(script_path: Path, config: RuntimeConfig) -> tuple[dict
         payload = summary_payload
     else:
         payload.setdefault("notes", [])
-        payload["notes"].append(f"external_runtime_python={runtime_python}")
+        if config.runtime_docker_container:
+            payload["notes"].append(f"external_runtime_docker_container={config.runtime_docker_container}")
+        else:
+            payload["notes"].append(f"external_runtime_docker_image={config.runtime_docker_image}")
 
     return payload, completed.returncode
 
@@ -1151,6 +1034,96 @@ def _read_box_velocity(stage: Usd.Stage, box_prim_path: str) -> tuple[float, flo
     if velocity is None:
         return (0.0, 0.0, 0.0)
     return _as_tuple(velocity)
+
+
+def _sdf_path_from_contact_id(value: Any) -> str:
+    if PhysicsSchemaTools is None:
+        return ""
+    try:
+        return str(PhysicsSchemaTools.intToSdfPath(value))
+    except Exception:
+        return ""
+
+
+def _path_is_or_under(path: str, root: str) -> bool:
+    return path == root or path.startswith(f"{root}/")
+
+
+def _classify_contact_target(scene: SceneBuildResult, paths: list[str]) -> str:
+    asset_root = scene.asset_prim_path
+    if any(_path_is_or_under(path, asset_root) for path in paths):
+        return "asset_subtree"
+    if any(path == "/World/TopDropBBoxCollider" for path in paths):
+        return "guide_bbox"
+    if any(path in scene.collider_prim_paths for path in paths):
+        return "registered_collider"
+    return "other"
+
+
+def _collect_box_contact_events(
+    physx_simulation_interface: Any | None,
+    scene: SceneBuildResult,
+    frame: int,
+    events: list[ContactEventSample],
+    errors: list[str],
+) -> None:
+    if physx_simulation_interface is None or PhysicsSchemaTools is None:
+        return
+
+    try:
+        contact_headers, _contact_data = physx_simulation_interface.get_contact_report()
+    except Exception as exc:  # pragma: no cover - depends on Isaac Sim runtime
+        if len(errors) < 10:
+            errors.append(f"frame={frame}: {type(exc).__name__}: {exc}")
+        return
+
+    for header in contact_headers:
+        actor0 = _sdf_path_from_contact_id(header.actor0)
+        actor1 = _sdf_path_from_contact_id(header.actor1)
+        collider0 = _sdf_path_from_contact_id(header.collider0)
+        collider1 = _sdf_path_from_contact_id(header.collider1)
+        paths = [actor0, actor1, collider0, collider1]
+        if not any(_path_is_or_under(path, scene.box_prim_path) for path in paths):
+            continue
+
+        target_kind = _classify_contact_target(scene, paths)
+        events.append(
+            ContactEventSample(
+                frame=frame,
+                event_type=int(header.type),
+                actor0=actor0,
+                actor1=actor1,
+                collider0=collider0,
+                collider1=collider1,
+                num_contacts=int(header.num_contact_data),
+                target_kind=target_kind,
+            )
+        )
+
+
+def build_contact_report_summary(events: list[ContactEventSample], errors: list[str]) -> dict[str, Any]:
+    target_events = [
+        event for event in events if event.target_kind in {"asset_subtree", "guide_bbox", "registered_collider"}
+    ]
+    asset_events = [event for event in events if event.target_kind == "asset_subtree"]
+    guide_events = [event for event in events if event.target_kind == "guide_bbox"]
+    other_events = [event for event in events if event.target_kind == "other"]
+
+    return {
+        "enabled": True,
+        "method": "physx_contact_report",
+        "event_count": len(events),
+        "target_event_count": len(target_events),
+        "asset_subtree_event_count": len(asset_events),
+        "guide_bbox_event_count": len(guide_events),
+        "other_box_event_count": len(other_events),
+        "detected": len(target_events) > 0,
+        "asset_subtree_detected": len(asset_events) > 0,
+        "guide_bbox_detected": len(guide_events) > 0,
+        "first_target_event": asdict(target_events[0]) if target_events else None,
+        "events": [asdict(event) for event in events[:20]],
+        "errors": errors[:10],
+    }
 
 
 def _capture_viewport_frame(path: Path) -> str | None:
@@ -1228,6 +1201,8 @@ def run_simulation(
     notes = [f"runtime={runtime_name or 'unavailable'}", f"host_platform={_host_platform()}"]
     samples: list[TimelineSample] = []
     final_state: dict[str, Any] = {}
+    contact_events: list[ContactEventSample] = []
+    contact_errors: list[str] = []
     render_files: list[str] = []
     render_errors: list[str] = []
     owns_simulation_app = simulation_app is None
@@ -1237,6 +1212,14 @@ def run_simulation(
     try:
         import omni.timeline  # type: ignore
         import omni.usd  # type: ignore
+
+        try:
+            from omni.physx import get_physx_simulation_interface  # type: ignore
+
+            physx_simulation_interface = get_physx_simulation_interface()
+        except Exception as exc:  # pragma: no cover - depends on Isaac Sim runtime
+            physx_simulation_interface = None
+            contact_errors.append(f"contact_report_unavailable: {type(exc).__name__}: {exc}")
 
         usd_context = omni.usd.get_context()
         opened = usd_context.open_stage(str(scene.stage_path))
@@ -1278,6 +1261,13 @@ def run_simulation(
                 render_errors=render_errors,
             )
             simulation_app.update()
+            _collect_box_contact_events(
+                physx_simulation_interface,
+                scene,
+                frame,
+                contact_events,
+                contact_errors,
+            )
 
         timeline.stop()
         final_sample = samples[-1] if samples else None
@@ -1293,6 +1283,7 @@ def run_simulation(
                 "files": render_files[:10],
                 "errors": render_errors[:10],
             },
+            "contact_report": build_contact_report_summary(contact_events, contact_errors),
         }
         return "passed", samples, final_state, notes
     finally:
@@ -1306,8 +1297,14 @@ def _xy_inside_asset_bbox(scene: SceneBuildResult, x: float, y: float, margin: f
     return (min_x - margin) <= x <= (max_x + margin) and (min_y - margin) <= y <= (max_y + margin)
 
 
-def analyze_hit(scene: SceneBuildResult, simulation_status: str, samples: list[TimelineSample]) -> dict[str, Any]:
+def analyze_hit(
+    scene: SceneBuildResult,
+    simulation_status: str,
+    samples: list[TimelineSample],
+    contact_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     hit_targeted = True
+    contact_detected = bool(contact_report and contact_report.get("detected"))
     contact_inferred = False
     box_descended = False
     min_box_z = None
@@ -1339,16 +1336,20 @@ def analyze_hit(scene: SceneBuildResult, simulation_status: str, samples: list[T
         else:
             contact_inferred = simulation_status == "passed" and len(samples) > 0
 
+    evidence_method = "physx_contact_report" if contact_detected else "bbox_motion_heuristic"
     return {
         "hit_targeted": hit_targeted,
         "size_preserved": scene.asset_bbox_preserved,
-        "contact_detected_or_inferred": contact_inferred,
+        "contact_detected": contact_detected,
+        "contact_inferred": contact_inferred,
+        "contact_detected_or_inferred": contact_detected or contact_inferred,
+        "contact_evidence_level": "detected" if contact_detected else "inferred" if contact_inferred else "none",
         "box_descended": box_descended,
         "initial_box_z": initial_box_z,
         "descent_delta": descent_delta,
         "min_box_z": min_box_z,
         "final_box_z": final_box_z,
-        "method": "bbox_motion_heuristic",
+        "method": evidence_method,
     }
 
 
@@ -1365,6 +1366,7 @@ def build_checks(
         "simulation_advanced": simulation_status == "passed" and len(samples) > 0,
         "hit_targeted": bool(hit_analysis.get("hit_targeted")),
         "size_preserved": bool(hit_analysis.get("size_preserved")),
+        "contact_report_detected": bool(hit_analysis.get("contact_detected")),
         "contact_detected_or_inferred": bool(hit_analysis.get("contact_detected_or_inferred")),
         "artifacts_written": True,
     }
@@ -1413,10 +1415,45 @@ def execute_hit_test_entry(
             raise FileNotFoundError(f"Input asset does not exist: {config.asset}")
 
         simulation_app_cls, runtime_name = _load_simulation_app()
-        if simulation_app_cls is None and allow_external_runtime and script_path is not None:
+        if allow_external_runtime and script_path is not None:
             external_result = run_external_runtime(script_path, config)
             if external_result is not None:
                 return external_result
+            summary_payload = {
+                "asset": str(config.asset),
+                "test_type": _test_type_for_config(config),
+                "result": "blocked",
+                "frames": config.frames,
+                "hit_mode": config.hit_mode,
+                "size_policy": config.size_policy,
+                "checks": {
+                    "asset_loaded": False,
+                    "static_colliders_applied": False,
+                    "dynamic_box_created": False,
+                    "simulation_advanced": False,
+                    "hit_targeted": False,
+                    "size_preserved": False,
+                    "contact_report_detected": False,
+                    "contact_detected_or_inferred": False,
+                    "artifacts_written": True,
+                },
+                "notes": [
+                    "Runtime physics validation is authoritative only on Linux with Isaac Sim Docker.",
+                    "Pass --runtime-docker-image or --runtime-docker-container; non-Docker runtime dispatch is disabled.",
+                ],
+            }
+            report_payload = {
+                "input_usd_path": str(config.asset),
+                "template_scene_path": str(config.template_scene) if config.template_scene is not None else None,
+                "replace_prim": config.replace_prim,
+                "hit_mode": config.hit_mode,
+                "size_policy": config.size_policy,
+                "runtime_policy": "linux_docker_only",
+            }
+            write_json(config.out_dir / "summary.json", summary_payload)
+            write_json(config.out_dir / "runtime_report.json", report_payload)
+            write_timeline_csv(config.out_dir, [])
+            return summary_payload, 2
 
         simulation_app = None
         if simulation_app_cls is not None:
@@ -1431,7 +1468,8 @@ def execute_hit_test_entry(
             runtime_name=runtime_name,
             simulation_app=simulation_app,
         )
-        hit_analysis = analyze_hit(scene, simulation_status, samples)
+        contact_report = final_state.get("contact_report") if isinstance(final_state, dict) else None
+        hit_analysis = analyze_hit(scene, simulation_status, samples, contact_report)
         checks = build_checks(scene, simulation_status, samples, hit_analysis)
         timeline_path = write_timeline_csv(config.out_dir, samples)
 
@@ -1443,6 +1481,7 @@ def execute_hit_test_entry(
             "hit_mode": scene.hit_mode,
             "size_policy": scene.size_policy,
             "checks": checks,
+            "contact_evidence_level": hit_analysis.get("contact_evidence_level"),
             "notes": notes,
         }
         report_payload = {
@@ -1507,6 +1546,7 @@ def execute_hit_test_entry(
                 "simulation_advanced": False,
                 "hit_targeted": False,
                 "size_preserved": False,
+                "contact_report_detected": False,
                 "contact_detected_or_inferred": False,
                 "artifacts_written": True,
             },

@@ -163,6 +163,101 @@ def _validator_defects(payload: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _runtime_flywheel_feedback(
+    runtime_summary: dict[str, Any] | None,
+    runtime_report: dict[str, Any] | None,
+    runtime_step: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if runtime_summary is None and runtime_report is None:
+        reason = (runtime_step or {}).get("stderr") or "runtime artifacts were not produced"
+        return {
+            "status": "blocked",
+            "failure_class": "environment_or_runtime_dispatch",
+            "reason": reason,
+            "upstream_actions": [
+                "Run on a Linux host with NVIDIA Container Toolkit and Isaac Sim Docker.",
+                "Pass --runtime-docker-image or --runtime-docker-container to the flywheel command.",
+                "Do not substitute host Python or non-container runtimes for authoritative runtime validation.",
+            ],
+        }
+
+    result = (runtime_summary or {}).get("result") or (runtime_report or {}).get("result")
+    checks = (runtime_summary or {}).get("checks") or {}
+    hit_analysis = (runtime_report or {}).get("hit_analysis") or {}
+    contact_report = (((runtime_report or {}).get("final_state") or {}).get("contact_report") or {})
+    if result == "passed" and checks.get("contact_report_detected"):
+        return {
+            "status": "passed",
+            "failure_class": None,
+            "reason": "Docker runtime completed with PhysX contact evidence.",
+            "upstream_actions": [],
+        }
+
+    if result in {"blocked", "error"}:
+        failure_class = "environment_or_runtime_dispatch"
+        actions = [
+            "Fix Docker image/container availability before changing asset authoring.",
+            "Verify physics-env succeeds against the same Docker image or container.",
+        ]
+    elif not checks.get("asset_loaded"):
+        failure_class = "authoring_or_reference"
+        actions = [
+            "Repair the exported USD package so references and payloads resolve inside the Docker mount.",
+            "Keep generated assets under mounted repository/home paths consumed by the runtime container.",
+        ]
+    elif not checks.get("static_colliders_applied"):
+        failure_class = "collider_authoring"
+        actions = [
+            "Improve usd-simready-inspector collider generation for the selected mesh subtree.",
+            "Review recommended_collider, target_mesh_paths, and collision approximation policy.",
+        ]
+    elif not checks.get("hit_targeted"):
+        failure_class = "placement_or_bbox"
+        actions = [
+            "Feed runtime asset_bbox_min/max back into recommendation authoring.",
+            "Adjust bbox normalization, orientation correction, or template placement.",
+        ]
+    elif not checks.get("simulation_advanced") or hit_analysis.get("box_descended") is not True:
+        failure_class = "runtime_motion"
+        actions = [
+            "Review gravity, metersPerUnit, drop actor size, and initial drop position.",
+            "Compare runtime_report box_size and asset bbox with simready_expectations.",
+        ]
+    elif not checks.get("contact_report_detected"):
+        failure_class = "contact_evidence"
+        actions = [
+            "Treat inferred contact as insufficient for promotion.",
+            "Improve collider authoring or contact-report instrumentation until PhysX contact_report_detected is true.",
+            "Use contact_report target_kind counts to distinguish asset_subtree from guide_bbox or other contacts.",
+        ]
+    else:
+        failure_class = "runtime_quality"
+        actions = [
+            "Review summary.json, runtime_report.json, and timeline.csv as a downstream failure record.",
+            "Patch the upstream recommendation or repair step, then rerun the same Docker command.",
+        ]
+
+    return {
+        "status": "failed" if result == "passed" else result or "failed",
+        "failure_class": failure_class,
+        "reason": "Downstream Docker runtime validation did not produce strong contact evidence.",
+        "observed": {
+            "result": result,
+            "checks": checks,
+            "contact_evidence_level": (runtime_summary or {}).get("contact_evidence_level")
+            or hit_analysis.get("contact_evidence_level"),
+            "contact_report": {
+                "event_count": contact_report.get("event_count"),
+                "target_event_count": contact_report.get("target_event_count"),
+                "asset_subtree_event_count": contact_report.get("asset_subtree_event_count"),
+                "guide_bbox_event_count": contact_report.get("guide_bbox_event_count"),
+                "errors": contact_report.get("errors"),
+            },
+        },
+        "upstream_actions": actions,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -183,8 +278,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--template-scene", type=Path, default=REPO_ROOT / "examples" / "mini_test.usda")
     parser.add_argument("--frames", type=int, default=240)
     parser.add_argument("--fps", type=float, default=60.0)
-    parser.add_argument("--runtime-python")
-    parser.add_argument("--runtime-platform", choices=["auto", "linux", "windows"], default="auto")
     parser.add_argument("--runtime-docker-image")
     parser.add_argument("--runtime-docker-container")
     parser.add_argument("--docker-workspace", default="/workspace/omni-asset-cli")
@@ -289,39 +382,47 @@ def main() -> int:
     runtime_report = runtime_dir / "runtime_report.json"
     runtime_summary = runtime_dir / "summary.json"
     if fixed_usd.exists() and not args.skip_runtime:
-        runtime_cmd = [
-            validator_python,
-            str(REPO_ROOT / "omniverse-usd-asset-validator" / "scripts" / "run_physics_hit_test.py"),
-            str(fixed_usd),
-            "--template-scene",
-            str(args.template_scene),
-            "--hit-mode",
-            "top-drop",
-            "--size-policy",
-            "preserve",
-            "--frames",
-            str(args.frames),
-            "--fps",
-            str(args.fps),
-            "--out",
-            str(runtime_dir),
-        ]
-        if args.runtime_python:
-            runtime_cmd.extend(["--runtime-python", args.runtime_python])
-        if args.runtime_platform:
-            runtime_cmd.extend(["--runtime-platform", args.runtime_platform])
-        if args.runtime_docker_image:
-            runtime_cmd.extend(["--runtime-docker-image", args.runtime_docker_image])
-        if args.runtime_docker_container:
-            runtime_cmd.extend(["--runtime-docker-container", args.runtime_docker_container])
-        if args.docker_workspace:
-            runtime_cmd.extend(["--docker-workspace", args.docker_workspace])
-        if args.docker_python:
-            runtime_cmd.extend(["--docker-python", args.docker_python])
-        if args.render_frames:
-            runtime_cmd.append("--render-frames")
-            runtime_cmd.extend(["--render-every-n-frames", str(args.render_every_n_frames)])
-        steps["runtime_top_drop"] = _run(runtime_cmd, REPO_ROOT)
+        if not (args.runtime_docker_image or args.runtime_docker_container):
+            steps["runtime_top_drop"] = {
+                "command": None,
+                "cwd": str(REPO_ROOT),
+                "returncode": 2,
+                "stdout": "",
+                "stderr": (
+                    "Runtime validation requires Linux with Isaac Sim Docker. "
+                    "Pass --runtime-docker-image or --runtime-docker-container."
+                ),
+            }
+        else:
+            runtime_cmd = [
+                validator_python,
+                str(REPO_ROOT / "omniverse-usd-asset-validator" / "scripts" / "run_physics_hit_test.py"),
+                str(fixed_usd),
+                "--template-scene",
+                str(args.template_scene),
+                "--hit-mode",
+                "top-drop",
+                "--size-policy",
+                "preserve",
+                "--frames",
+                str(args.frames),
+                "--fps",
+                str(args.fps),
+                "--out",
+                str(runtime_dir),
+            ]
+            if args.runtime_docker_image:
+                runtime_cmd.extend(["--runtime-docker-image", args.runtime_docker_image])
+            if args.runtime_docker_container:
+                runtime_cmd.extend(["--runtime-docker-container", args.runtime_docker_container])
+            if args.docker_workspace:
+                runtime_cmd.extend(["--docker-workspace", args.docker_workspace])
+            if args.docker_python:
+                runtime_cmd.extend(["--docker-python", args.docker_python])
+            if args.render_frames:
+                runtime_cmd.append("--render-frames")
+                runtime_cmd.extend(["--render-every-n-frames", str(args.render_every_n_frames)])
+            steps["runtime_top_drop"] = _run(runtime_cmd, REPO_ROOT)
 
     if recommendation.exists() and fixed_report.exists():
         diagnose_cmd = [
@@ -347,6 +448,11 @@ def main() -> int:
     runtime_summary_payload = _load_json(runtime_summary)
     source_validator_payload = _load_json(source_validator_json)
     fixed_validator_payload = _load_json(fixed_validator_json)
+    runtime_feedback = _runtime_flywheel_feedback(
+        runtime_summary_payload,
+        runtime_payload,
+        steps.get("runtime_top_drop"),
+    )
 
     report = {
         "schema_version": 1,
@@ -389,6 +495,15 @@ def main() -> int:
             ),
             "checks": (runtime_summary_payload or {}).get("checks") or (runtime_payload or {}).get("checks"),
             "hit_analysis": (runtime_payload or {}).get("hit_analysis") if runtime_payload else None,
+            "contact_evidence_level": (runtime_summary_payload or {}).get("contact_evidence_level")
+            or ((runtime_payload or {}).get("hit_analysis") or {}).get("contact_evidence_level"),
+        },
+        "data_flywheel": {
+            "downstream_runtime_feedback": runtime_feedback,
+            "principle": (
+                "Downstream Docker runtime failures are feedback for upstream asset preparation, "
+                "collider authoring, placement, scale/orientation normalization, and contact instrumentation."
+            ),
         },
         "diagnosis": diagnosis_payload,
         "steps": steps,

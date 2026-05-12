@@ -71,18 +71,8 @@ def parse_args() -> argparse.Namespace:
         help="Disable headless mode when launching the runtime app",
     )
     parser.add_argument(
-        "--runtime-python",
-        help="Optional Isaac Sim Python launcher path, such as python.sh or python.bat",
-    )
-    parser.add_argument(
-        "--runtime-platform",
-        choices=["auto", "linux", "windows"],
-        default="auto",
-        help="Target runtime platform when dispatching to an external Isaac Sim Python",
-    )
-    parser.add_argument(
         "--runtime-docker-image",
-        help="Optional Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
+        help="Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
     )
     parser.add_argument(
         "--runtime-docker-container",
@@ -150,8 +140,6 @@ def main() -> int:
         frames=args.frames,
         fps=args.fps,
         headless=not args.no_headless,
-        runtime_python=args.runtime_python,
-        runtime_platform=args.runtime_platform,
         runtime_docker_image=args.runtime_docker_image,
         runtime_docker_container=args.runtime_docker_container,
         docker_workspace=args.docker_workspace,
