@@ -140,6 +140,12 @@ def build_physics_hit_test_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--render-every-n-frames", str(args.render_every_n_frames)])
     if args.render_warmup_updates is not None:
         command.extend(["--render-warmup-updates", str(args.render_warmup_updates)])
+    if args.render_physics_bboxes:
+        command.append("--render-physics-bboxes")
+    if args.render_physics_bbox_fallback_default_prim:
+        command.append("--render-physics-bbox-fallback-default-prim")
+    if args.render_physics_bbox_width is not None:
+        command.extend(["--render-physics-bbox-width", str(args.render_physics_bbox_width)])
 
     return command
 
@@ -196,6 +202,12 @@ def build_simready_flywheel_command(args: argparse.Namespace) -> list[str]:
         command.append("--render-frames")
     if args.render_every_n_frames is not None:
         command.extend(["--render-every-n-frames", str(args.render_every_n_frames)])
+    if args.render_physics_bboxes:
+        command.append("--render-physics-bboxes")
+    if args.render_physics_bbox_fallback_default_prim:
+        command.append("--render-physics-bbox-fallback-default-prim")
+    if args.render_physics_bbox_width is not None:
+        command.extend(["--render-physics-bbox-width", str(args.render_physics_bbox_width)])
 
     return command
 
@@ -367,6 +379,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=2,
         help="Extra app updates after each capture request so the PNG writer can flush",
     )
+    physics_parser.add_argument(
+        "--render-physics-bboxes",
+        action="store_true",
+        help="Draw temporary session-layer bbox curves for asset collider prims during rendered frame capture",
+    )
+    physics_parser.add_argument(
+        "--render-physics-bbox-fallback-default-prim",
+        action="store_true",
+        help="When no collider paths are available, draw the asset prim bbox for capture debugging only",
+    )
+    physics_parser.add_argument(
+        "--render-physics-bbox-width",
+        type=float,
+        default=0.0,
+        help="BBox line width in stage units; 0 chooses an automatic width",
+    )
     physics_parser.set_defaults(func=cmd_physics_hit_test)
 
     physics_env_parser = subparsers.add_parser(
@@ -444,6 +472,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     flywheel_parser.add_argument("--render-frames", action="store_true")
     flywheel_parser.add_argument("--render-every-n-frames", type=int, default=1)
+    flywheel_parser.add_argument("--render-physics-bboxes", action="store_true")
+    flywheel_parser.add_argument("--render-physics-bbox-fallback-default-prim", action="store_true")
+    flywheel_parser.add_argument("--render-physics-bbox-width", type=float, default=0.0)
     flywheel_parser.set_defaults(func=cmd_simready_flywheel)
 
     return parser

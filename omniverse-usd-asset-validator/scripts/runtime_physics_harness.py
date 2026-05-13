@@ -15,9 +15,10 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from pxr import Gf, Usd, UsdGeom, UsdPhysics
+    from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 except ImportError:  # Allows host-side Docker dispatch without local USD Python packages.
     Gf = None  # type: ignore[assignment]
+    Sdf = None  # type: ignore[assignment]
     Usd = None  # type: ignore[assignment]
     UsdGeom = None  # type: ignore[assignment]
     UsdPhysics = None  # type: ignore[assignment]
@@ -30,14 +31,16 @@ except ImportError:
 
 
 def _ensure_pxr_loaded() -> None:
-    global Gf, Usd, UsdGeom, UsdPhysics, PhysicsSchemaTools, PhysxSchema
-    if any(module is None for module in (Gf, Usd, UsdGeom, UsdPhysics)):
+    global Gf, Sdf, Usd, UsdGeom, UsdPhysics, PhysicsSchemaTools, PhysxSchema
+    if any(module is None for module in (Gf, Sdf, Usd, UsdGeom, UsdPhysics)):
         from pxr import Gf as _Gf
+        from pxr import Sdf as _Sdf
         from pxr import Usd as _Usd
         from pxr import UsdGeom as _UsdGeom
         from pxr import UsdPhysics as _UsdPhysics
 
         Gf = _Gf
+        Sdf = _Sdf
         Usd = _Usd
         UsdGeom = _UsdGeom
         UsdPhysics = _UsdPhysics
@@ -52,6 +55,130 @@ def _ensure_pxr_loaded() -> None:
         except ImportError:
             PhysicsSchemaTools = None  # type: ignore[assignment]
             PhysxSchema = None  # type: ignore[assignment]
+
+
+DEBUG_PHYSICS_BBOX_ROOT = "/__OmniAssetDebugPhysicsBBox"
+
+
+def _debug_prim_name(value: str) -> str:
+    name = "".join(char if char.isalnum() or char == "_" else "_" for char in value.strip("/"))
+    name = name.strip("_") or "prim"
+    if name[0].isdigit():
+        name = "_" + name
+    return name
+
+
+def _bbox_edge_points(minimum: Any, maximum: Any) -> list[Any]:
+    _ensure_pxr_loaded()
+    min_x, min_y, min_z = [float(value) for value in minimum]
+    max_x, max_y, max_z = [float(value) for value in maximum]
+    corners = [
+        Gf.Vec3f(min_x, min_y, min_z),
+        Gf.Vec3f(max_x, min_y, min_z),
+        Gf.Vec3f(max_x, max_y, min_z),
+        Gf.Vec3f(min_x, max_y, min_z),
+        Gf.Vec3f(min_x, min_y, max_z),
+        Gf.Vec3f(max_x, min_y, max_z),
+        Gf.Vec3f(max_x, max_y, max_z),
+        Gf.Vec3f(min_x, max_y, max_z),
+    ]
+    edges = [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0),
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 4),
+        (0, 4),
+        (1, 5),
+        (2, 6),
+        (3, 7),
+    ]
+    points: list[Any] = []
+    for start, end in edges:
+        points.extend([corners[start], corners[end]])
+    return points
+
+
+def _bbox_line_width(stage_range: Any, requested: float) -> float:
+    if requested > 0:
+        return requested
+    if stage_range is None or stage_range.IsEmpty():
+        return 0.5
+    size = stage_range.GetSize()
+    diagonal = (float(size[0]) ** 2 + float(size[1]) ** 2 + float(size[2]) ** 2) ** 0.5
+    return max(diagonal * 0.004, 0.01)
+
+
+def _define_bbox_curve(stage: Any, path: Any, bbox_range: Any, width: float) -> None:
+    _ensure_pxr_loaded()
+    curves = UsdGeom.BasisCurves.Define(stage, path)
+    curves.CreateTypeAttr(UsdGeom.Tokens.linear)
+    curves.CreateWrapAttr(UsdGeom.Tokens.nonperiodic)
+    curves.CreateCurveVertexCountsAttr([2] * 12)
+    curves.CreatePointsAttr(_bbox_edge_points(bbox_range.GetMin(), bbox_range.GetMax()))
+    curves.CreateWidthsAttr([float(width)])
+    gprim = UsdGeom.Gprim(curves.GetPrim())
+    gprim.CreateDisplayColorAttr([Gf.Vec3f(1.0, 0.12, 0.05)])
+
+
+def add_physics_bbox_session_overlay(
+    stage: Any,
+    *,
+    collider_paths: list[str],
+    fallback_prim_path: str | None,
+    fallback_default_prim: bool,
+    width: float,
+) -> list[str]:
+    _ensure_pxr_loaded()
+    target_paths = [path for path in collider_paths if path and stage.GetPrimAtPath(path)]
+    if not target_paths and fallback_default_prim and fallback_prim_path and stage.GetPrimAtPath(fallback_prim_path):
+        target_paths = [fallback_prim_path]
+    if not target_paths:
+        return []
+
+    bbox_cache = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(),
+        [UsdGeom.Tokens.default_, UsdGeom.Tokens.render, UsdGeom.Tokens.proxy],
+        useExtentsHint=True,
+    )
+    line_width = _bbox_line_width(
+        bbox_cache.ComputeWorldBound(stage.GetPseudoRoot()).ComputeAlignedRange(),
+        width,
+    )
+    debug_root = Sdf.Path(DEBUG_PHYSICS_BBOX_ROOT)
+    old_target = stage.GetEditTarget()
+    stage.SetEditTarget(stage.GetSessionLayer())
+    try:
+        if stage.GetPrimAtPath(debug_root):
+            stage.RemovePrim(debug_root)
+        UsdGeom.Xform.Define(stage, debug_root)
+        written: list[str] = []
+        for index, target_path in enumerate(target_paths):
+            prim = stage.GetPrimAtPath(target_path)
+            bbox_range = bbox_cache.ComputeWorldBound(prim).ComputeAlignedRange()
+            if bbox_range.IsEmpty():
+                continue
+            overlay_path = debug_root.AppendChild(f"bbox_{index:03d}_{_debug_prim_name(target_path)}")
+            _define_bbox_curve(stage, overlay_path, bbox_range, line_width)
+            written.append(target_path)
+        return written
+    finally:
+        stage.SetEditTarget(old_target)
+
+
+def clear_physics_bbox_session_overlay(stage: Any) -> None:
+    _ensure_pxr_loaded()
+    debug_root = Sdf.Path(DEBUG_PHYSICS_BBOX_ROOT)
+    old_target = stage.GetEditTarget()
+    stage.SetEditTarget(stage.GetSessionLayer())
+    try:
+        if stage.GetPrimAtPath(debug_root):
+            stage.RemovePrim(debug_root)
+    finally:
+        stage.SetEditTarget(old_target)
 
 
 @dataclass
@@ -73,6 +200,9 @@ class RuntimeConfig:
     render_frames: bool = False
     render_every_n_frames: int = 1
     render_warmup_updates: int = 2
+    render_physics_bboxes: bool = False
+    render_physics_bbox_fallback_default_prim: bool = False
+    render_physics_bbox_width: float = 0.0
 
 
 @dataclass
@@ -832,6 +962,11 @@ def _build_docker_child_args(script_path: Path, config: RuntimeConfig) -> list[s
         command.append("--render-frames")
     command.extend(["--render-every-n-frames", str(config.render_every_n_frames)])
     command.extend(["--render-warmup-updates", str(config.render_warmup_updates)])
+    if config.render_physics_bboxes:
+        command.append("--render-physics-bboxes")
+    if config.render_physics_bbox_fallback_default_prim:
+        command.append("--render-physics-bbox-fallback-default-prim")
+    command.extend(["--render-physics-bbox-width", str(config.render_physics_bbox_width)])
     return command
 
 
@@ -1176,6 +1311,9 @@ def _maybe_capture_frame(
     if error:
         render_errors.append(f"frame={frame}: {error}")
         return
+    if not frame_path.exists():
+        render_errors.append(f"frame={frame}: capture requested but file was not written: {frame_path}")
+        return
     render_files.append(str(frame_path))
 
 
@@ -1205,6 +1343,7 @@ def run_simulation(
     contact_errors: list[str] = []
     render_files: list[str] = []
     render_errors: list[str] = []
+    physics_bbox_overlay_targets: list[str] = []
     owns_simulation_app = simulation_app is None
     if simulation_app is None:
         simulation_app = simulation_app_cls({"headless": config.headless})
@@ -1232,6 +1371,19 @@ def run_simulation(
         stage = usd_context.get_stage()
         if stage is None:
             raise RuntimeError("Omniverse USD context did not return a stage.")
+
+        if config.render_physics_bboxes:
+            physics_bbox_overlay_targets = add_physics_bbox_session_overlay(
+                stage,
+                collider_paths=scene.collider_prim_paths,
+                fallback_prim_path=scene.asset_prim_path,
+                fallback_default_prim=config.render_physics_bbox_fallback_default_prim,
+                width=config.render_physics_bbox_width,
+            )
+            if physics_bbox_overlay_targets:
+                notes.append(f"physics_bbox_overlay_targets={len(physics_bbox_overlay_targets)}")
+            else:
+                notes.append("physics_bbox_overlay_targets=0")
 
         timeline = omni.timeline.get_timeline_interface()
         timeline.set_current_time(0.0)
@@ -1282,11 +1434,23 @@ def run_simulation(
                 "output_dir": str(config.out_dir / "render_frames") if config.render_frames else None,
                 "files": render_files[:10],
                 "errors": render_errors[:10],
+                "physics_bbox_overlay_enabled": config.render_physics_bboxes,
+                "physics_bbox_overlay_targets": physics_bbox_overlay_targets,
+                "physics_bbox_overlay_session_root": DEBUG_PHYSICS_BBOX_ROOT if config.render_physics_bboxes else None,
             },
             "contact_report": build_contact_report_summary(contact_events, contact_errors),
         }
         return "passed", samples, final_state, notes
     finally:
+        try:
+            if config.render_physics_bboxes:
+                import omni.usd  # type: ignore
+
+                stage = omni.usd.get_context().get_stage()
+                if stage is not None:
+                    clear_physics_bbox_session_overlay(stage)
+        except Exception:
+            pass
         if owns_simulation_app:
             simulation_app.close()
 

@@ -82,6 +82,8 @@ omni-asset-cli physics-hit-test path/to/asset.usd \
 - For Stage 1 runtime checks, use Linux + Isaac Sim Docker only. Do not substitute host Python or non-container runtimes for authoritative physics results.
 - For Docker runtime checks, make the input asset container-readable. Prefer repository paths; for assets elsewhere under the host home directory, stage the package directory under `out/runtime_inputs/` or rely on the runtime harness auto-staging and report the staged path.
 - For Stage 1 runtime checks, prefer `--hit-mode top-drop --size-policy preserve` so the asset keeps its real bbox and the box is aimed above the bbox center.
+- For rendered physics bbox evidence, use the existing runtime render path with `--render-frames --render-physics-bboxes`. The harness writes bbox curves only to the Kit session layer and clears them before shutdown; do not create or save debug prims in the source USD.
+- Use `--render-physics-bbox-fallback-default-prim` only as a capture-path debug aid when no collider paths exist. Do not describe fallback default-prim bbox as physics collider evidence.
 - Fall back to standard validation if the prompt does not match a specific rule.
 - Prefer `KindChecker` only when the user explicitly asks about Isaac Sim, SimReady, hierarchy, or component semantics.
 

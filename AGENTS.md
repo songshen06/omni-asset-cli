@@ -53,6 +53,16 @@ python3 omni_asset_cli.py physics-hit-test path/to/asset.usd \
   --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
 ```
 
+When the user asks for rendered physics bbox evidence, keep the work in this
+runtime harness instead of creating debug USD edits upstream. Add
+`--render-frames --render-physics-bboxes` to the Docker hit test. The harness
+authors bbox curves only in the Kit session layer under
+`/__OmniAssetDebugPhysicsBBox`, captures via the existing viewport frame path,
+and clears the overlay before shutdown. Use
+`--render-physics-bbox-fallback-default-prim` only to debug capture on assets
+that have no collider paths; do not report fallback bbox output as physics
+collider evidence.
+
 For runtime reports, prefer PhysX contact evidence over motion heuristics. `checks.contact_report_detected == true` and `contact_evidence_level == "detected"` are stronger evidence than `checks.contact_detected_or_inferred == true` with an inferred evidence level. If a runtime check fails, feed the failure upstream as a data-flywheel signal instead of treating it as an isolated test failure. Capture `summary.json`, `runtime_report.json`, `timeline.csv`, the generated stage path, the asset path, Docker image tag, command line, and whether the failure was environment, authoring, collider/contact, placement, scale, or motion-related. Use that failure record to improve the upstream asset preparation or repair step, for example collider generation, bbox/scale normalization, template placement, contact-report instrumentation, or SimReady repair policy. Re-run the same Docker command after the upstream change and compare the structured artifacts.
 
 ## Commit & Pull Request Guidelines

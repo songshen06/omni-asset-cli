@@ -284,6 +284,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--docker-python", default="/isaac-sim/python.sh")
     parser.add_argument("--render-frames", action="store_true")
     parser.add_argument("--render-every-n-frames", type=int, default=1)
+    parser.add_argument("--render-physics-bboxes", action="store_true")
+    parser.add_argument("--render-physics-bbox-fallback-default-prim", action="store_true")
+    parser.add_argument("--render-physics-bbox-width", type=float, default=0.0)
     return parser.parse_args()
 
 
@@ -422,6 +425,11 @@ def main() -> int:
             if args.render_frames:
                 runtime_cmd.append("--render-frames")
                 runtime_cmd.extend(["--render-every-n-frames", str(args.render_every_n_frames)])
+            if args.render_physics_bboxes:
+                runtime_cmd.append("--render-physics-bboxes")
+            if args.render_physics_bbox_fallback_default_prim:
+                runtime_cmd.append("--render-physics-bbox-fallback-default-prim")
+            runtime_cmd.extend(["--render-physics-bbox-width", str(args.render_physics_bbox_width)])
             steps["runtime_top_drop"] = _run(runtime_cmd, REPO_ROOT)
 
     if recommendation.exists() and fixed_report.exists():

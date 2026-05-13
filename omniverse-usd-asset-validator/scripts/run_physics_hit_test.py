@@ -106,6 +106,22 @@ def parse_args() -> argparse.Namespace:
         help="Extra app updates after each capture request so the PNG writer can flush",
     )
     parser.add_argument(
+        "--render-physics-bboxes",
+        action="store_true",
+        help="Draw temporary session-layer bbox curves for asset collider prims during rendered frame capture",
+    )
+    parser.add_argument(
+        "--render-physics-bbox-fallback-default-prim",
+        action="store_true",
+        help="When no collider paths are available, draw the asset prim bbox for capture debugging only",
+    )
+    parser.add_argument(
+        "--render-physics-bbox-width",
+        type=float,
+        default=0.0,
+        help="BBox line width in stage units; 0 chooses an automatic width",
+    )
+    parser.add_argument(
         "--external-runtime-child",
         action="store_true",
         help=argparse.SUPPRESS,
@@ -147,6 +163,9 @@ def main() -> int:
         render_frames=args.render_frames,
         render_every_n_frames=args.render_every_n_frames,
         render_warmup_updates=args.render_warmup_updates,
+        render_physics_bboxes=args.render_physics_bboxes,
+        render_physics_bbox_fallback_default_prim=args.render_physics_bbox_fallback_default_prim,
+        render_physics_bbox_width=args.render_physics_bbox_width,
     )
     summary, code = execute_hit_test_entry(
         config,
