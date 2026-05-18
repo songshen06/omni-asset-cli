@@ -1,0 +1,4 @@
+interface:
+  display_name: "Omni Asset CLI Agent"
+  short_description: "Guide agents through omni-asset-cli workflows"
+  default_prompt: "Use $omni-asset-cli-agent to validate an OpenUSD asset with omni_asset_cli.py and explain the generated artifacts."
