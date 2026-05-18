@@ -334,16 +334,18 @@ def issue_to_dict(issue: Any) -> dict[str, Any]:
         requirement_value = None
 
     rule = issue.rule
+    rule_name = rule.__name__ if rule else None
     return {
         "message": issue.message,
         "severity": issue.severity.name if issue.severity else None,
-        "rule": rule.__name__ if rule else None,
+        "rule": rule_name,
         "asset": str(issue.asset) if issue.asset is not None else None,
         "at": at_value,
         "suggestion": str(issue.suggestion) if issue.suggestion is not None else None,
         "requirement": requirement_value,
         "code": issue.code,
         "tags": list(issue.tags) if issue.tags else [],
+        "explanation": RULE_EXPLANATIONS.get(rule_name) if rule_name else None,
     }
 
 
@@ -665,6 +667,53 @@ def format_rule_with_reason(rule_name: str, count: int) -> str:
     return f"- `{rule_name}`: {count} 个。"
 
 
+def build_issue_explanation_lines(payload: dict[str, Any]) -> list[str]:
+    issues = payload["issues"]
+    if not issues:
+        return ["- 当前没有具体问题。"]
+
+    by_rule: dict[str, list[dict[str, Any]]] = {}
+    for issue in issues:
+        rule_name = issue["rule"] or "UnknownRule"
+        by_rule.setdefault(rule_name, []).append(issue)
+
+    lines: list[str] = []
+    for rule_name, rule_issues in sorted(by_rule.items(), key=lambda item: (-len(item[1]), item[0])):
+        explanation = RULE_EXPLANATIONS.get(rule_name)
+        severities = sorted({issue["severity"] or "UNKNOWN" for issue in rule_issues})
+        locations = []
+        for issue in rule_issues:
+            location = issue.get("at")
+            if location and location not in locations:
+                locations.append(location)
+            if len(locations) >= 3:
+                break
+
+        lines.append(f"### `{rule_name}`")
+        lines.append("")
+        lines.append(f"- 命中数量：`{len(rule_issues)}`")
+        lines.append(f"- 严重级别：`{', '.join(severities)}`")
+        if explanation:
+            lines.append(f"- 检查什么：{explanation['what']}")
+            lines.append(f"- 为什么重要：{explanation['why']}")
+            lines.append(f"- 建议修复：{explanation['fix']}")
+        else:
+            lines.append("- 检查什么：该规则由 Omniverse Asset Validator 返回，当前报告模板还没有专项解释。")
+            lines.append("- 为什么重要：请优先结合原始 message、severity、requirement code 和命中位置判断影响范围。")
+            lines.append("- 建议修复：按代表问题定位到对应 prim/attribute，修复后重新运行同一 profile 复测。")
+        if locations:
+            lines.append(f"- 代表位置：`{locations[0]}`")
+            for location in locations[1:]:
+                lines.append(f"  另见：`{location}`")
+
+        first_suggestion = next((issue.get("suggestion") for issue in rule_issues if issue.get("suggestion")), None)
+        if first_suggestion:
+            lines.append(f"- Validator 建议：{first_suggestion}")
+        lines.append("")
+
+    return lines
+
+
 def build_markdown_report(payload: dict[str, Any]) -> str:
     summary = payload["summary"]
     issues = payload["issues"]
@@ -734,6 +783,9 @@ def build_markdown_report(payload: dict[str, Any]) -> str:
             for rule_name, count in grouped_rules[heading]:
                 lines.append(format_rule_with_reason(rule_name, count))
         lines.append("")
+
+    lines.extend(["## 问题解释与修复建议", ""])
+    lines.extend(build_issue_explanation_lines(payload))
 
     lines.extend(["## 代表问题", ""])
     if not top_issues:
