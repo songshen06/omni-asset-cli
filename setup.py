@@ -9,12 +9,15 @@ setup(
     long_description_content_type="text/markdown",
     python_requires=">=3.10",
     py_modules=["omni_asset_cli"],
+    packages=["omni_asset_service"],
     entry_points={
         "console_scripts": [
             "omni-asset-cli=omni_asset_cli:main",
+            "omni-asset-service=omni_asset_service.__main__:main",
         ],
     },
     extras_require={
         "validator": ["omniverse-asset-validator[usd,numpy]"],
+        "api": ["fastapi>=0.110,<1", "uvicorn[standard]>=0.27,<1", "python-multipart>=0.0.9,<1"],
     },
 )

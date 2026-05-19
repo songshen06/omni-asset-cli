@@ -46,6 +46,52 @@ python3 -m pip install --no-build-isolation -e .
 python3 -m pip install --no-build-isolation -e ".[validator]"
 ```
 
+部署 REST API 服务入口推荐使用脚本一次性创建独立虚拟环境、安装 API 依赖并生成本地 env 文件：
+
+```bash
+scripts/deploy_api_service.sh --write-env
+source .env.omni-asset-service
+.venv-api/bin/omni-asset-service --host 0.0.0.0 --port 8000
+```
+
+开发环境也可以手动安装 API extra：
+
+```bash
+python3 -m pip install --no-build-isolation -e ".[api]"
+```
+
+### Runtime Test REST API
+
+本项目还提供一个多租户 REST API，用来把 mesh validator 检查和 `physics-hit-test` 碰撞检查作为异步任务提交。API 服务只管理租户、项目、资产、任务和产物；实际检查仍调用现有 CLI，保持 `summary.json`、`runtime_report.json`、`timeline.csv` 等产物格式一致。
+
+最小本地启动示例：
+
+```bash
+export OMNI_SERVICE_STORAGE_ROOT="$PWD/out/omni-asset-service"
+export OMNI_SERVICE_API_KEYS=dev-secret:tenant_a:project_a
+export ISAAC_CONTAINERS=isaac-sim-0
+export DOCKER_WORKSPACE=/workspace/omni-asset-cli
+export DOCKER_PYTHON=/isaac-sim/python.sh
+export OMNI_SERVICE_JOB_TIMEOUT_SECONDS=7200
+
+omni-asset-service --host 0.0.0.0 --port 8000
+```
+
+核心接口：
+
+```text
+POST /v1/projects/{project_id}/assets
+POST /v1/projects/{project_id}/tests/mesh
+POST /v1/projects/{project_id}/tests/collision
+GET  /v1/projects/{project_id}/jobs/{job_id}
+GET  /v1/projects/{project_id}/jobs/{job_id}/report/summary
+GET  /v1/projects/{project_id}/jobs/{job_id}/report/runtime
+GET  /v1/projects/{project_id}/jobs/{job_id}/artifacts
+GET  /v1/projects/{project_id}/jobs/{job_id}/artifacts/{artifact_id}
+```
+
+所有请求使用 `X-API-Key` 认证。API 不接受任意服务器路径；必须先上传 `.zip` 或 `.usd/.usda/.usdc` 资产包，再用返回的 `asset_id` 创建测试 job。mesh job 默认使用 `stage1-furniture` profile；warning 和非碰撞相关 validator failure 会保留在报告中，但不阻断后续碰撞测试，只有会影响物理碰撞的严重 mesh/引用/尺度问题才判定 failed。collision job 默认只把 `summary.result == "passed"` 且 `checks.contact_report_detected == true`、`contact_evidence_level == "detected"` 判定为强通过。
+
 ### Isaac Sim Docker 测试环境建议
 
 本项目推荐把普通 USD 静态检查和 Isaac Sim runtime 物理检查分开：
@@ -441,6 +487,7 @@ setup.py
 
 进一步文档：
 
+- `DEPLOYMENT.md`
 - `omniverse-usd-asset-validator/SKILL.md`
 - `omniverse-usd-asset-validator/references/`
 - `omniverse-usd-asset-validator/references/agent-bootstrap-deployment.md`
@@ -629,6 +676,7 @@ This repository is mainly for:
 
 Further documentation:
 
+- `DEPLOYMENT.md`
 - `omniverse-usd-asset-validator/SKILL.md`
 - `omniverse-usd-asset-validator/references/`
 - `omniverse-usd-asset-validator/references/agent-bootstrap-deployment.md`

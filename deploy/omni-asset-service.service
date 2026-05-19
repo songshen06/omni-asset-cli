@@ -1,0 +1,15 @@
+[Unit]
+Description=Omni Asset Runtime Test REST API
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/omni-asset-cli
+EnvironmentFile=/etc/omni-asset-service.env
+ExecStart=/opt/omni-asset-cli/.venv-api/bin/omni-asset-service --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

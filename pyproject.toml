@@ -28,9 +28,16 @@ dependencies = []
 validator = [
   "omniverse-asset-validator[usd,numpy]",
 ]
+api = [
+  "fastapi>=0.110,<1",
+  "uvicorn[standard]>=0.27,<1",
+  "python-multipart>=0.0.9,<1",
+]
 
 [project.scripts]
 omni-asset-cli = "omni_asset_cli:main"
+omni-asset-service = "omni_asset_service.__main__:main"
 
 [tool.setuptools]
 py-modules = ["omni_asset_cli"]
+packages = ["omni_asset_service"]
