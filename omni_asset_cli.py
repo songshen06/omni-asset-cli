@@ -212,6 +212,17 @@ def build_simready_flywheel_command(args: argparse.Namespace) -> list[str]:
     return command
 
 
+def build_gallery_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(REPO_ROOT / "scripts" / "build_out_gallery.py")]
+    if args.out_dir:
+        command.extend(["--out-dir", args.out_dir])
+    if args.output:
+        command.extend(["--output", args.output])
+    if args.title:
+        command.extend(["--title", args.title])
+    return command
+
+
 def cmd_env(_: argparse.Namespace) -> int:
     return passthrough([sys.executable, str(script_path("check_omniverse_asset_validator_env.py"))])
 
@@ -245,6 +256,10 @@ def cmd_physics_env(args: argparse.Namespace) -> int:
 
 def cmd_simready_flywheel(args: argparse.Namespace) -> int:
     return passthrough(build_simready_flywheel_command(args))
+
+
+def cmd_gallery(args: argparse.Namespace) -> int:
+    return passthrough(build_gallery_command(args))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -476,6 +491,15 @@ def build_parser() -> argparse.ArgumentParser:
     flywheel_parser.add_argument("--render-physics-bbox-fallback-default-prim", action="store_true")
     flywheel_parser.add_argument("--render-physics-bbox-width", type=float, default=0.0)
     flywheel_parser.set_defaults(func=cmd_simready_flywheel)
+
+    gallery_parser = subparsers.add_parser(
+        "gallery",
+        help="Build a lightweight static HTML gallery for images and videos under out/",
+    )
+    gallery_parser.add_argument("--out-dir", default="out", help="Directory to scan for media artifacts")
+    gallery_parser.add_argument("--output", default="out/gallery.html", help="HTML file to write")
+    gallery_parser.add_argument("--title", default="Omni Asset Output Gallery", help="Page title")
+    gallery_parser.set_defaults(func=cmd_gallery)
 
     return parser
 
