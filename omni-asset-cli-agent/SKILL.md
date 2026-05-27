@@ -108,6 +108,15 @@ For rendered physics bbox evidence, stay inside `physics-hit-test` and add:
 
 Use `--render-physics-bbox-fallback-default-prim` only for capture debugging when no collider paths exist. Do not report fallback bbox output as physics collider evidence.
 
+For multi-camera rendered evidence or mp4 output, keep the same `physics-hit-test` command and add camera/video options:
+
+```bash
+--render-video --render-camera-preset front --render-camera-preset side --render-camera-preset top
+```
+
+Rendered PNGs are written under `OUT/render_frames/<camera>/` when camera presets are specified; mp4 files are written under `OUT/render_videos/`.
+When the user wants the video to match the validated standalone falling-asset renderer, add `--render-video-style asset-table-drop`; keep using the hit-test `summary.json` and `runtime_report.json` for authoritative PhysX contact evidence.
+
 ## Report Style
 
 Keep final summaries short and artifact-oriented:

@@ -1,5 +1,29 @@
 # 更新说明
 
+## 2026-05-27
+
+### 中文
+
+- `physics-hit-test` 新增多镜头渲染取证能力，可通过 `--render-camera-preset` 捕获 front、side、top、iso 等视角，并将 PNG 输出到 `OUT/render_frames/<camera>/`。
+- 新增 `--render-video` 与 `--render-video-style`，支持直接生成每个镜头的 mp4；`asset-table-drop` 风格会复用独立资产下落渲染器，视觉输出更接近已验证的视频证据流程。
+- 新增 Replicator/viewport 渲染后端选择、分辨率、RT subframes、等待更新、视频 fps/CRF、材质模式和镜头参数，便于在同一条 runtime 命令中生成可复现取证素材。
+- runtime harness 新增 `replace-box` placement、资产 Y/Z 初始旋转、动态资产 bbox overlay、容器 preflight 策略，以及更详细的 progress/runtime report 字段。
+- REST API 的 collision 请求模型和后台 worker 已透传渲染视频、多镜头、Docker preflight 等参数，异步服务可以产出同类 runtime artifacts。
+- 新增 `render_asset_table_drop.py`、`render_asset_setup_orbit.py` 和 `check_stage_mdl_load.py` 辅助脚本，用于资产下落视频、setup orbit 取证和 Isaac Sim MDL 加载检查。
+- 更新部署文档和 agent 技能说明，补充多镜头 mp4 取证命令示例，并强调权威碰撞结论仍以 `summary.json` 和 `runtime_report.json` 的 PhysX contact evidence 为准。
+- 测试覆盖了 service worker 对新 collision 渲染参数的命令构造。
+
+### English
+
+- Added multi-camera rendered evidence for `physics-hit-test`; `--render-camera-preset` can capture front, side, top, iso, and related views under `OUT/render_frames/<camera>/`.
+- Added `--render-video` and `--render-video-style` so runtime runs can emit one mp4 per camera; `asset-table-drop` delegates to the standalone falling-asset renderer for the validated visual evidence style.
+- Added Replicator/viewport backend selection, render resolution, RT subframes, wait updates, video fps/CRF, material modes, and camera tuning options for reproducible evidence from one runtime command.
+- Extended the runtime harness with `replace-box` placement, initial asset Y/Z rotation, dynamic asset bbox overlays, Docker container preflight policy, and richer progress/runtime report metadata.
+- The REST API collision request schema and background worker now pass through video rendering, multi-camera, and Docker preflight options for async artifact generation.
+- Added helper scripts for asset table-drop video rendering, setup orbit evidence rendering, and Isaac Sim MDL stage-load checks: `render_asset_table_drop.py`, `render_asset_setup_orbit.py`, and `check_stage_mdl_load.py`.
+- Updated deployment and agent guidance with multi-camera mp4 evidence examples, while keeping `summary.json` and `runtime_report.json` PhysX contact evidence as the authoritative collision result.
+- Tests now cover service worker command construction for the new collision rendering options.
+
 ## 2026-05-12
 
 ### Isaac Sim Docker Runtime

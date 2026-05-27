@@ -21,12 +21,23 @@ class AssetResponse(BaseModel):
 class CollisionTestRequest(BaseModel):
     asset_id: str
     template_scene: str = "examples/mini_test.usda"
-    placement_mode: Literal["auto", "replace-table", "tabletop"] = "replace-table"
+    placement_mode: Literal["auto", "replace-table", "tabletop", "replace-box"] = "replace-table"
     hit_mode: Literal["side-hit", "top-drop"] = "top-drop"
     size_policy: Literal["template-fit", "preserve"] = "preserve"
     frames: int = Field(default=240, ge=1, le=100000)
     render_frames: bool = False
     render_every_n_frames: int = Field(default=20, ge=1)
+    runtime_docker_preflight: Literal["auto", "check", "restart", "skip"] = "auto"
+    render_camera_preset: list[str] = Field(default_factory=list)
+    render_backend: Literal["replicator", "viewport"] = "replicator"
+    render_width: int = Field(default=1280, ge=1)
+    render_height: int = Field(default=720, ge=1)
+    render_rt_subframes: int = Field(default=4, ge=1)
+    render_wait_updates: int = Field(default=20, ge=1)
+    render_video: bool = False
+    render_video_style: Literal["hit-test", "asset-table-drop"] = "hit-test"
+    render_video_fps: float | None = Field(default=None, gt=0)
+    render_video_crf: int = Field(default=23, ge=0, le=51)
 
 
 class MeshValidationRequest(BaseModel):

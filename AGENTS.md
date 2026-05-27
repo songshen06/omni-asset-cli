@@ -31,6 +31,15 @@ python3 omni_asset_cli.py physics-env \
   --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
 ```
 
+Current test environment note: this workspace is expected to have an Isaac Sim
+Docker container available. Agents should first try the running container path
+before treating runtime validation as unavailable:
+
+```bash
+python3 omni_asset_cli.py physics-env \
+  --runtime-docker-container isaac-sim
+```
+
 Agents must follow this operating procedure for runtime physics validation:
 
 1. Confirm the runtime with `physics-env` using an Isaac Sim Docker image or container.

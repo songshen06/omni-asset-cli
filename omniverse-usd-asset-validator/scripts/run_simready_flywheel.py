@@ -280,10 +280,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fps", type=float, default=60.0)
     parser.add_argument("--runtime-docker-image")
     parser.add_argument("--runtime-docker-container")
+    parser.add_argument(
+        "--runtime-docker-preflight",
+        choices=["auto", "check", "restart", "skip"],
+        default="restart",
+        help=(
+            "Container clean-start policy before docker exec. restart always restarts; auto restarts only when "
+            "stale Isaac/Kit processes are found; check blocks on stale processes; skip disables it."
+        ),
+    )
     parser.add_argument("--docker-workspace", default="/workspace/omni-asset-cli")
     parser.add_argument("--docker-python", default="/isaac-sim/python.sh")
     parser.add_argument("--render-frames", action="store_true")
     parser.add_argument("--render-every-n-frames", type=int, default=1)
+    parser.add_argument("--render-camera-preset", action="append", default=[])
+    parser.add_argument("--render-backend", choices=["replicator", "viewport"], default="replicator")
+    parser.add_argument("--render-width", type=int, default=1280)
+    parser.add_argument("--render-height", type=int, default=720)
+    parser.add_argument("--render-rt-subframes", type=int, default=4)
+    parser.add_argument("--render-wait-updates", type=int, default=20)
+    parser.add_argument("--render-video", action="store_true")
+    parser.add_argument("--render-video-fps", type=float)
+    parser.add_argument("--render-video-crf", type=int, default=23)
     parser.add_argument("--render-physics-bboxes", action="store_true")
     parser.add_argument("--render-physics-bbox-fallback-default-prim", action="store_true")
     parser.add_argument("--render-physics-bbox-width", type=float, default=0.0)
@@ -418,13 +436,26 @@ def main() -> int:
                 runtime_cmd.extend(["--runtime-docker-image", args.runtime_docker_image])
             if args.runtime_docker_container:
                 runtime_cmd.extend(["--runtime-docker-container", args.runtime_docker_container])
+            runtime_cmd.extend(["--runtime-docker-preflight", args.runtime_docker_preflight])
             if args.docker_workspace:
                 runtime_cmd.extend(["--docker-workspace", args.docker_workspace])
             if args.docker_python:
                 runtime_cmd.extend(["--docker-python", args.docker_python])
-            if args.render_frames:
+            if args.render_frames or args.render_video:
                 runtime_cmd.append("--render-frames")
                 runtime_cmd.extend(["--render-every-n-frames", str(args.render_every_n_frames)])
+            for item in args.render_camera_preset:
+                runtime_cmd.extend(["--render-camera-preset", item])
+            runtime_cmd.extend(["--render-backend", args.render_backend])
+            runtime_cmd.extend(["--render-width", str(args.render_width)])
+            runtime_cmd.extend(["--render-height", str(args.render_height)])
+            runtime_cmd.extend(["--render-rt-subframes", str(args.render_rt_subframes)])
+            runtime_cmd.extend(["--render-wait-updates", str(args.render_wait_updates)])
+            if args.render_video:
+                runtime_cmd.append("--render-video")
+            if args.render_video_fps is not None:
+                runtime_cmd.extend(["--render-video-fps", str(args.render_video_fps)])
+            runtime_cmd.extend(["--render-video-crf", str(args.render_video_crf)])
             if args.render_physics_bboxes:
                 runtime_cmd.append("--render-physics-bboxes")
             if args.render_physics_bbox_fallback_default_prim:

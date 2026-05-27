@@ -232,6 +232,32 @@ contact_evidence_level = detected
 
 `--render-physics-bbox-fallback-default-prim` 只用于调试没有 collider paths 的捕获问题，不应把 fallback bbox 当成真实 physics collider evidence 报告。
 
+如果需要多个镜头和 mp4 视频，仍然走同一个 `physics-hit-test` runtime harness：
+
+```bash
+.venv/bin/python omni_asset_cli.py physics-hit-test examples/minimal_scene.usda \
+  --template-scene examples/mini_test.usda \
+  --placement-mode replace-table \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --render-video \
+  --render-video-style asset-table-drop \
+  --render-camera-preset front \
+  --render-camera-preset side \
+  --render-camera-preset top \
+  --render-every-n-frames 2 \
+  --render-video-fps 30 \
+  --out out/minimal_scene_docker_hit_video \
+  --runtime-docker-container isaac-sim \
+  --docker-workspace /workspace/omni-asset-cli
+```
+
+PNG 帧写入 `OUT/render_frames/<camera>/`，mp4 写入 `OUT/render_videos/<camera>.mp4`。如果只传 `--render-frames` 且不指定镜头，仍保持旧行为：帧直接写在 `OUT/render_frames/frame_XXXX.png`。
+
+`--render-video-style hit-test` 捕获同一轮 hit-test 场景。`--render-video-style asset-table-drop`
+会在同一条 CLI 中委托给 `render_asset_table_drop.py`，用于复用已验证的资产下落到桌面的 Replicator 视频风格；该视频是视觉证据，强碰撞结论仍以 `summary.json` 和 `runtime_report.json` 的 PhysX contact report 为准。
+
 ## 8. Optional API service deployment
 
 REST API 服务用于把 mesh validator 检查和 `physics-hit-test` 碰撞检查作为异步任务提交。API 只管理 tenant、project、asset、job 和 artifacts；实际检查仍调用同一套 CLI。

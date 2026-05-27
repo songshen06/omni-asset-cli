@@ -118,6 +118,10 @@ def build_physics_hit_test_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--hit-mode", args.hit_mode])
     if args.size_policy:
         command.extend(["--size-policy", args.size_policy])
+    if args.asset_rotation_y_deg:
+        command.extend(["--asset-rotation-y-deg", str(args.asset_rotation_y_deg)])
+    if args.asset_rotation_z_deg:
+        command.extend(["--asset-rotation-z-deg", str(args.asset_rotation_z_deg)])
     if args.frames is not None:
         command.extend(["--frames", str(args.frames)])
     if args.fps is not None:
@@ -130,6 +134,8 @@ def build_physics_hit_test_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--runtime-docker-image", args.runtime_docker_image])
     if args.runtime_docker_container:
         command.extend(["--runtime-docker-container", args.runtime_docker_container])
+    if args.runtime_docker_preflight:
+        command.extend(["--runtime-docker-preflight", args.runtime_docker_preflight])
     if args.docker_workspace:
         command.extend(["--docker-workspace", args.docker_workspace])
     if args.docker_python:
@@ -140,6 +146,36 @@ def build_physics_hit_test_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--render-every-n-frames", str(args.render_every_n_frames)])
     if args.render_warmup_updates is not None:
         command.extend(["--render-warmup-updates", str(args.render_warmup_updates)])
+    for item in args.render_camera_preset:
+        command.extend(["--render-camera-preset", item])
+    if args.render_backend:
+        command.extend(["--render-backend", args.render_backend])
+    if args.render_width is not None:
+        command.extend(["--render-width", str(args.render_width)])
+    if args.render_height is not None:
+        command.extend(["--render-height", str(args.render_height)])
+    if args.render_rt_subframes is not None:
+        command.extend(["--render-rt-subframes", str(args.render_rt_subframes)])
+    if args.render_wait_updates is not None:
+        command.extend(["--render-wait-updates", str(args.render_wait_updates)])
+    if args.render_video:
+        command.append("--render-video")
+    if args.render_video_style:
+        command.extend(["--render-video-style", args.render_video_style])
+    if args.render_video_fps is not None:
+        command.extend(["--render-video-fps", str(args.render_video_fps)])
+    if args.render_video_crf is not None:
+        command.extend(["--render-video-crf", str(args.render_video_crf)])
+    for item in args.render_material_mode:
+        command.extend(["--render-material-mode", item])
+    if args.render_camera_distance_scale is not None:
+        command.extend(["--render-camera-distance-scale", str(args.render_camera_distance_scale)])
+    if args.render_camera_focal_length is not None:
+        command.extend(["--render-camera-focal-length", str(args.render_camera_focal_length)])
+    if args.render_camera_elevation_deg is not None:
+        command.extend(["--render-camera-elevation-deg", str(args.render_camera_elevation_deg)])
+    if args.render_timeout_seconds is not None:
+        command.extend(["--render-timeout-seconds", str(args.render_timeout_seconds)])
     if args.render_physics_bboxes:
         command.append("--render-physics-bboxes")
     if args.render_physics_bbox_fallback_default_prim:
@@ -194,6 +230,8 @@ def build_simready_flywheel_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--runtime-docker-image", args.runtime_docker_image])
     if args.runtime_docker_container:
         command.extend(["--runtime-docker-container", args.runtime_docker_container])
+    if args.runtime_docker_preflight:
+        command.extend(["--runtime-docker-preflight", args.runtime_docker_preflight])
     if args.docker_workspace:
         command.extend(["--docker-workspace", args.docker_workspace])
     if args.docker_python:
@@ -202,6 +240,24 @@ def build_simready_flywheel_command(args: argparse.Namespace) -> list[str]:
         command.append("--render-frames")
     if args.render_every_n_frames is not None:
         command.extend(["--render-every-n-frames", str(args.render_every_n_frames)])
+    for item in args.render_camera_preset:
+        command.extend(["--render-camera-preset", item])
+    if args.render_backend:
+        command.extend(["--render-backend", args.render_backend])
+    if args.render_width is not None:
+        command.extend(["--render-width", str(args.render_width)])
+    if args.render_height is not None:
+        command.extend(["--render-height", str(args.render_height)])
+    if args.render_rt_subframes is not None:
+        command.extend(["--render-rt-subframes", str(args.render_rt_subframes)])
+    if args.render_wait_updates is not None:
+        command.extend(["--render-wait-updates", str(args.render_wait_updates)])
+    if args.render_video:
+        command.append("--render-video")
+    if args.render_video_fps is not None:
+        command.extend(["--render-video-fps", str(args.render_video_fps)])
+    if args.render_video_crf is not None:
+        command.extend(["--render-video-crf", str(args.render_video_crf)])
     if args.render_physics_bboxes:
         command.append("--render-physics-bboxes")
     if args.render_physics_bbox_fallback_default_prim:
@@ -339,9 +395,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     physics_parser.add_argument(
         "--placement-mode",
-        choices=["auto", "replace-table", "tabletop"],
+        choices=["auto", "replace-table", "tabletop", "replace-box"],
         default="auto",
-        help="Template placement strategy. Use replace-table for furniture and tabletop for decor props.",
+        help="Template placement strategy. Use replace-table for furniture, tabletop for decor props, or replace-box for the falling actor.",
     )
     physics_parser.add_argument(
         "--hit-mode",
@@ -355,6 +411,18 @@ def build_parser() -> argparse.ArgumentParser:
         default="template-fit",
         help="Whether template mode scales to the replaced prim footprint or preserves the asset's real size.",
     )
+    physics_parser.add_argument(
+        "--asset-rotation-y-deg",
+        type=float,
+        default=0.0,
+        help="Initial local Y-axis rotation applied to the referenced asset before running the test.",
+    )
+    physics_parser.add_argument(
+        "--asset-rotation-z-deg",
+        type=float,
+        default=0.0,
+        help="Initial local Z-axis rotation applied to the referenced asset before running the test.",
+    )
     physics_parser.add_argument("--frames", type=int, default=240, help="Number of frames to simulate")
     physics_parser.add_argument("--fps", type=float, default=60.0, help="Simulation frames per second")
     physics_parser.add_argument("--out", help="Output directory for runtime artifacts")
@@ -366,6 +434,15 @@ def build_parser() -> argparse.ArgumentParser:
     physics_parser.add_argument(
         "--runtime-docker-container",
         help="Optional running Isaac Sim container name or ID to exec into",
+    )
+    physics_parser.add_argument(
+        "--runtime-docker-preflight",
+        choices=["auto", "check", "restart", "skip"],
+        default="restart",
+        help=(
+            "Container clean-start policy before docker exec. restart always restarts; auto restarts only when "
+            "stale Isaac/Kit processes are found; check blocks on stale processes; skip disables it."
+        ),
     )
     physics_parser.add_argument(
         "--docker-workspace",
@@ -393,6 +470,80 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=2,
         help="Extra app updates after each capture request so the PNG writer can flush",
+    )
+    physics_parser.add_argument(
+        "--render-camera-preset",
+        action="append",
+        default=[],
+        help=(
+            "Camera preset to capture when --render-frames or --render-video is enabled. "
+            "Repeat or pass comma-separated values. Choices: active, front, back, left, right, side, top, iso."
+        ),
+    )
+    physics_parser.add_argument(
+        "--render-backend",
+        choices=["replicator", "viewport"],
+        default="replicator",
+        help="Frame capture backend. Replicator matches the standalone video render script more closely.",
+    )
+    physics_parser.add_argument("--render-width", type=int, default=1280, help="Rendered frame width")
+    physics_parser.add_argument("--render-height", type=int, default=720, help="Rendered frame height")
+    physics_parser.add_argument("--render-rt-subframes", type=int, default=4, help="Replicator subframes per frame")
+    physics_parser.add_argument("--render-wait-updates", type=int, default=20, help="App updates to wait for frame writes")
+    physics_parser.add_argument(
+        "--render-video",
+        action="store_true",
+        help="Encode captured render frames into one mp4 per camera under OUT/render_videos",
+    )
+    physics_parser.add_argument(
+        "--render-video-style",
+        choices=["hit-test", "asset-table-drop"],
+        default="hit-test",
+        help=(
+            "Video renderer style. asset-table-drop delegates to render_asset_table_drop.py "
+            "so output matches the standalone validated renderer."
+        ),
+    )
+    physics_parser.add_argument(
+        "--render-video-fps",
+        type=float,
+        help="Frame rate for encoded mp4 output; defaults to simulation fps divided by render-every-n-frames",
+    )
+    physics_parser.add_argument(
+        "--render-video-crf",
+        type=int,
+        default=23,
+        help="libx264 CRF value used when --render-video is enabled",
+    )
+    physics_parser.add_argument(
+        "--render-material-mode",
+        action="append",
+        default=[],
+        help="Material mode for asset-table-drop videos. Repeat or pass comma-separated values. Choices: all, material, transparent.",
+    )
+    physics_parser.add_argument(
+        "--render-camera-distance-scale",
+        type=float,
+        default=None,
+        help="Camera distance scale for asset-table-drop videos.",
+    )
+    physics_parser.add_argument(
+        "--render-camera-focal-length",
+        type=float,
+        default=None,
+        help="Camera focal length for asset-table-drop videos.",
+    )
+    physics_parser.add_argument(
+        "--render-camera-elevation-deg",
+        type=float,
+        default=None,
+        help="Camera elevation in degrees for asset-table-drop videos.",
+    )
+    physics_parser.add_argument(
+        "--render-timeout-seconds",
+        type=float,
+        default=0.0,
+        help="Hard timeout for asset-table-drop video rendering; 0 chooses a conservative default.",
     )
     physics_parser.add_argument(
         "--render-physics-bboxes",
@@ -476,6 +627,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     flywheel_parser.add_argument("--runtime-docker-container", help="Optional running Isaac Sim container name or ID")
     flywheel_parser.add_argument(
+        "--runtime-docker-preflight",
+        choices=["auto", "check", "restart", "skip"],
+        default="restart",
+    )
+    flywheel_parser.add_argument(
         "--docker-workspace",
         default="/workspace/omni-asset-cli",
         help="Repository mount path inside the Isaac Sim container",
@@ -487,6 +643,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     flywheel_parser.add_argument("--render-frames", action="store_true")
     flywheel_parser.add_argument("--render-every-n-frames", type=int, default=1)
+    flywheel_parser.add_argument("--render-camera-preset", action="append", default=[])
+    flywheel_parser.add_argument("--render-backend", choices=["replicator", "viewport"], default="replicator")
+    flywheel_parser.add_argument("--render-width", type=int, default=1280)
+    flywheel_parser.add_argument("--render-height", type=int, default=720)
+    flywheel_parser.add_argument("--render-rt-subframes", type=int, default=4)
+    flywheel_parser.add_argument("--render-wait-updates", type=int, default=20)
+    flywheel_parser.add_argument("--render-video", action="store_true")
+    flywheel_parser.add_argument("--render-video-fps", type=float)
+    flywheel_parser.add_argument("--render-video-crf", type=int, default=23)
     flywheel_parser.add_argument("--render-physics-bboxes", action="store_true")
     flywheel_parser.add_argument("--render-physics-bbox-fallback-default-prim", action="store_true")
     flywheel_parser.add_argument("--render-physics-bbox-width", type=float, default=0.0)

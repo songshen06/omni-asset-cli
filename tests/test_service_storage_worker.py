@@ -372,6 +372,16 @@ class ServiceStorageWorkerTests(unittest.TestCase):
                 "frames": 240,
                 "render_frames": True,
                 "render_every_n_frames": 20,
+                "render_camera_preset": ["front", "top"],
+                "render_backend": "replicator",
+                "render_width": 1280,
+                "render_height": 720,
+                "render_rt_subframes": 4,
+                "render_wait_updates": 20,
+                "render_video": True,
+                "render_video_style": "asset-table-drop",
+                "render_video_fps": 12.0,
+                "render_video_crf": 24,
             },
             staged_asset=self.root / "asset.usda",
             artifacts_dir=self.root / "artifacts",
@@ -383,6 +393,22 @@ class ServiceStorageWorkerTests(unittest.TestCase):
         self.assertIn("isaac-sim-0", command)
         self.assertIn("--docker-workspace", command)
         self.assertIn("--render-frames", command)
+        self.assertIn("--render-camera-preset", command)
+        self.assertIn("front", command)
+        self.assertIn("top", command)
+        self.assertIn("--render-backend", command)
+        self.assertIn("replicator", command)
+        self.assertIn("--render-width", command)
+        self.assertIn("1280", command)
+        self.assertIn("--render-height", command)
+        self.assertIn("720", command)
+        self.assertIn("--render-video", command)
+        self.assertIn("--render-video-style", command)
+        self.assertIn("asset-table-drop", command)
+        self.assertIn("--render-video-fps", command)
+        self.assertIn("12.0", command)
+        self.assertIn("--render-video-crf", command)
+        self.assertIn("24", command)
 
     def test_collision_runner_rejects_unsafe_template_scene_path(self) -> None:
         runner = CollisionRunner(self.config)

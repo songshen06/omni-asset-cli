@@ -114,14 +114,36 @@ class CollisionRunner:
             str(artifacts_dir),
             "--runtime-docker-container",
             container,
+            "--runtime-docker-preflight",
+            str(request.get("runtime_docker_preflight") or "auto"),
             "--docker-workspace",
             self.config.docker_workspace,
             "--docker-python",
             self.config.docker_python,
         ]
-        if request.get("render_frames"):
+        if request.get("render_frames") or request.get("render_video"):
             command.append("--render-frames")
             command.extend(["--render-every-n-frames", str(request.get("render_every_n_frames") or 20)])
+        for item in request.get("render_camera_preset") or []:
+            command.extend(["--render-camera-preset", str(item)])
+        if request.get("render_backend"):
+            command.extend(["--render-backend", str(request["render_backend"])])
+        if request.get("render_width") is not None:
+            command.extend(["--render-width", str(request["render_width"])])
+        if request.get("render_height") is not None:
+            command.extend(["--render-height", str(request["render_height"])])
+        if request.get("render_rt_subframes") is not None:
+            command.extend(["--render-rt-subframes", str(request["render_rt_subframes"])])
+        if request.get("render_wait_updates") is not None:
+            command.extend(["--render-wait-updates", str(request["render_wait_updates"])])
+        if request.get("render_video"):
+            command.append("--render-video")
+        if request.get("render_video_style"):
+            command.extend(["--render-video-style", str(request["render_video_style"])])
+        if request.get("render_video_fps") is not None:
+            command.extend(["--render-video-fps", str(request["render_video_fps"])])
+        if request.get("render_video_crf") is not None:
+            command.extend(["--render-video-crf", str(request["render_video_crf"])])
         return command
 
     def resolve_template_scene(self, value: str) -> Path:
