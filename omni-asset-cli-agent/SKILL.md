@@ -25,10 +25,13 @@ Use these entry points:
 - Static validator: `.venv/bin/python omni_asset_cli.py validate <asset> --profile stage1-furniture`
 - Mesh/collision preflight: `.venv/bin/python omni_asset_cli.py validate <asset> --profile collidable`
 - Natural language mapping: `.venv/bin/python omni_asset_cli.py map <asset> "check mesh topology"`
-- Isaac Sim runtime readiness: `python3 omni_asset_cli.py physics-env --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0`
-- Runtime top-drop hit test: `python3 omni_asset_cli.py physics-hit-test <asset> --template-scene examples/mini_test.usda --placement-mode replace-table --hit-mode top-drop --size-policy preserve --frames 240 --out out/<name>_hit --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0`
-- SimReady flywheel: `python3 omni_asset_cli.py simready-flywheel <asset> --out out/<name>_flywheel --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0`
+- Isaac Sim runtime readiness, preferred in this workspace: `python3 omni_asset_cli.py physics-env --runtime-docker-container isaac-sim`
+- Isaac Sim runtime readiness by image: `python3 omni_asset_cli.py physics-env --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0`
+- Runtime top-drop hit test: `python3 omni_asset_cli.py physics-hit-test <asset> --template-scene examples/mini_test.usda --placement-mode replace-table --hit-mode top-drop --size-policy preserve --frames 240 --out out/<name>_hit --runtime-docker-container isaac-sim --docker-workspace /workspace/omni-asset-cli`
+- SimReady flywheel: `python3 omni_asset_cli.py simready-flywheel <asset> --out out/<name>_flywheel --runtime-docker-container isaac-sim --docker-workspace /workspace/omni-asset-cli`
 - Topology issue render: `.venv/bin/python omniverse-usd-asset-validator/scripts/render_mesh_topology_issues.py <staged_asset> --out out/<name>_mesh_wire_render --mesh-path <mesh_prim_path>`
+- Asset setup orbit render: `python3 omniverse-usd-asset-validator/scripts/render_asset_setup_orbit.py <asset> --out out/<name>_setup_orbit`
+- Isaac Sim MDL load probe: `python3 omniverse-usd-asset-validator/scripts/check_stage_mdl_load.py <stage>`
 
 ## Validation Profiles
 
@@ -89,11 +92,31 @@ If `non_manifold_edge_count == 0` and vertices are nonzero, explain that the iss
 
 ## Isaac Sim Runtime Policy
 
-Authoritative runtime physics validation uses Linux + Isaac Sim Docker only. Start with:
+Authoritative runtime physics validation uses Linux + Isaac Sim Docker only. In this workspace, first try the running container path:
+
+```bash
+python3 omni_asset_cli.py physics-env --runtime-docker-container isaac-sim
+```
+
+If no container is available, use the Isaac Sim image:
 
 ```bash
 python3 omni_asset_cli.py physics-env --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
 ```
+
+Runtime Docker options:
+
+- Prefer `--runtime-docker-container isaac-sim --docker-workspace /workspace/omni-asset-cli` when a mounted container is already running.
+- Use `--runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0` when the CLI should launch a one-shot container.
+- `--runtime-docker-preflight restart` is the CLI default for clean container execution. Use `auto` to restart only when stale Isaac/Kit processes are detected, `check` to block instead of restarting, and `skip` only when the user explicitly wants no preflight.
+- Keep `--no-headless` off unless the user has configured a visible Isaac Sim session. The normal runtime path uses `SimulationApp({"headless": True})`.
+
+Stage 1 placement options:
+
+- `--placement-mode replace-table`: furniture and larger support surfaces; replaces the template table target.
+- `--placement-mode tabletop`: cups, decor props, and small objects; keeps the template table and places the asset on top.
+- `--placement-mode replace-box`: use the input asset as the falling actor for debugging dynamic asset behavior.
+- Add `--asset-rotation-y-deg` or `--asset-rotation-z-deg` only when orientation needs correction before runtime evidence is collected.
 
 For top-drop tests, prefer PhysX contact evidence:
 
@@ -111,11 +134,34 @@ Use `--render-physics-bbox-fallback-default-prim` only for capture debugging whe
 For multi-camera rendered evidence or mp4 output, keep the same `physics-hit-test` command and add camera/video options:
 
 ```bash
---render-video --render-camera-preset front --render-camera-preset side --render-camera-preset top
+--render-video \
+--render-video-style asset-table-drop \
+--render-camera-preset front \
+--render-camera-preset side \
+--render-camera-preset top \
+--render-every-n-frames 2 \
+--render-video-fps 30
 ```
 
 Rendered PNGs are written under `OUT/render_frames/<camera>/` when camera presets are specified; mp4 files are written under `OUT/render_videos/`.
 When the user wants the video to match the validated standalone falling-asset renderer, add `--render-video-style asset-table-drop`; keep using the hit-test `summary.json` and `runtime_report.json` for authoritative PhysX contact evidence.
+
+Rendered evidence options:
+
+- `--render-video-style hit-test` captures the same runtime hit-test scene.
+- `--render-video-style asset-table-drop` delegates to `render_asset_table_drop.py` for the standalone falling-asset video style.
+- `--render-camera-preset` accepts repeated or comma-separated values such as `front`, `side`, `top`, `iso`, and `all`.
+- `--render-backend replicator` is the default and preferred for frame/video evidence; use `viewport` only when debugging capture compatibility.
+- Use `--render-width`, `--render-height`, `--render-rt-subframes`, and `--render-wait-updates` to tune capture quality and write reliability.
+- Use `--render-video-fps` and `--render-video-crf` for mp4 timing and compression control.
+- Use `--render-material-mode material`, `transparent`, or `all` with `asset-table-drop` videos when the user wants material and translucent-bbox variants.
+- Use `--render-camera-distance-scale`, `--render-camera-focal-length`, and `--render-camera-elevation-deg` to tune `asset-table-drop` camera framing.
+
+Helper render scripts:
+
+- `render_asset_table_drop.py` creates standalone falling-asset video evidence. Use it directly only when the user asks for visual-only evidence without running the full hit-test wrapper.
+- `render_asset_setup_orbit.py` creates setup/orbit frames with bbox, collider bbox, and center marker overlays for asset inspection.
+- `check_stage_mdl_load.py` opens a stage inside Isaac Sim long enough to catch MDL/material loading failures.
 
 ## Report Style
 

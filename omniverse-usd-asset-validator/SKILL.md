@@ -67,11 +67,12 @@ Run the Stage 1 top-drop runtime check when a physics runtime is available:
 ```bash
 omni-asset-cli physics-hit-test path/to/asset.usd \
   --template-scene examples/mini_test.usda \
-  --replace-prim /World/roomScene/colliders/table \
+  --placement-mode replace-table \
   --hit-mode top-drop \
   --size-policy preserve \
   --out out/asset_top_drop \
-  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+  --runtime-docker-container isaac-sim \
+  --docker-workspace /workspace/omni-asset-cli
 ```
 
 ## Natural-Language Handling Rules
@@ -80,10 +81,17 @@ omni-asset-cli physics-hit-test path/to/asset.usd \
 - Keep the default rules unless the user explicitly narrows the scope.
 - Map furniture, furnishings, decor props, Stage 1, 家具, 摆件, 装饰道具 prompts to `--profile stage1-furniture`.
 - For Stage 1 runtime checks, use Linux + Isaac Sim Docker only. Do not substitute host Python or non-container runtimes for authoritative physics results.
+- Prefer `--runtime-docker-container isaac-sim --docker-workspace /workspace/omni-asset-cli` when a mounted Isaac Sim container is available. Use `--runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0` for one-shot container runs.
+- Use `--runtime-docker-preflight restart` for a clean default, `auto` to restart only when stale Kit/Isaac processes exist, `check` to block on stale processes, and `skip` only when explicitly requested.
 - For Docker runtime checks, make the input asset container-readable. Prefer repository paths; for assets elsewhere under the host home directory, stage the package directory under `out/runtime_inputs/` or rely on the runtime harness auto-staging and report the staged path.
 - For Stage 1 runtime checks, prefer `--hit-mode top-drop --size-policy preserve` so the asset keeps its real bbox and the box is aimed above the bbox center.
+- Use `--placement-mode replace-table` for furniture/support surfaces, `tabletop` for small decor props placed on the template table, and `replace-box` only when debugging the input asset as the falling dynamic actor.
+- Use `--asset-rotation-y-deg` or `--asset-rotation-z-deg` when orientation correction is needed before collecting runtime evidence.
 - For rendered physics bbox evidence, use the existing runtime render path with `--render-frames --render-physics-bboxes`. The harness writes bbox curves only to the Kit session layer and clears them before shutdown; do not create or save debug prims in the source USD.
 - Use `--render-physics-bbox-fallback-default-prim` only as a capture-path debug aid when no collider paths exist. Do not describe fallback default-prim bbox as physics collider evidence.
+- For multi-camera PNG/MP4 evidence, add repeated `--render-camera-preset` values plus `--render-video`. Prefer `--render-video-style asset-table-drop` for the validated falling-asset visual style, but keep `summary.json` and `runtime_report.json` PhysX contact evidence as the authoritative collision result.
+- Use `--render-backend replicator` by default. Tune output with `--render-width`, `--render-height`, `--render-rt-subframes`, `--render-wait-updates`, `--render-video-fps`, `--render-video-crf`, `--render-material-mode`, and asset-table-drop camera options when the user asks for specific visual evidence.
+- Use `render_asset_setup_orbit.py` for setup/orbit inspection renders and `check_stage_mdl_load.py` for Isaac Sim stage/MDL load probes.
 - Fall back to standard validation if the prompt does not match a specific rule.
 - Prefer `KindChecker` only when the user explicitly asks about Isaac Sim, SimReady, hierarchy, or component semantics.
 
