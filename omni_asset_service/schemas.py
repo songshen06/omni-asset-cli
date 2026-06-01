@@ -20,6 +20,7 @@ class AssetResponse(BaseModel):
 
 class CollisionTestRequest(BaseModel):
     asset_id: str
+    asset_role: Literal["furniture", "prop"] | None = None
     template_scene: str = "examples/mini_test.usda"
     placement_mode: Literal["auto", "replace-table", "tabletop", "replace-box"] = "replace-table"
     hit_mode: Literal["side-hit", "top-drop"] = "top-drop"

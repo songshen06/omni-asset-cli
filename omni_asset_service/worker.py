@@ -12,74 +12,14 @@ from typing import Any
 
 from .config import ServiceConfig
 from .db import Database, json_loads
+from .domain.artifacts import RUNTIME_REPORT_FILENAME, SUMMARY_FILENAME, artifact_kind
+from .domain.collision import normalize_collision_request
+from .domain.reports import normalize_job_summary
+from .domain.status import classify_summary, classify_validation_summary
 from .storage import job_artifacts_dir, job_work_dir, stage_asset_package
 
 
-SUMMARY_FILENAME = "summary.json"
-RUNTIME_REPORT_FILENAME = "runtime_report.json"
 DEFAULT_TEMPLATE_SCENE = "examples/mini_test.usda"
-PHYSICS_IMPACTING_VALIDATION_RULES = {
-    "ExtentsChecker",
-    "ManifoldChecker",
-    "MissingReferenceChecker",
-    "NormalsValidChecker",
-    "StageMetadataChecker",
-    "ValidateTopologyChecker",
-    "ZeroAreaFaceChecker",
-}
-PHYSICS_BLOCKING_SEVERITIES = {"ERROR", "FAILURE"}
-
-
-def classify_summary(summary: dict[str, Any]) -> tuple[str, dict[str, Any], str | None]:
-    checks = summary.get("checks") if isinstance(summary.get("checks"), dict) else {}
-    result = summary.get("result")
-    contact_report_detected = checks.get("contact_report_detected") is True
-    evidence_level = summary.get("contact_evidence_level")
-    strong_contact_evidence = contact_report_detected and evidence_level == "detected"
-    adapted = {
-        "summary_result": result,
-        "contact_report_detected": contact_report_detected,
-        "contact_evidence_level": evidence_level,
-        "strong_contact_evidence": strong_contact_evidence,
-    }
-    if result == "blocked":
-        return "blocked", adapted, summary.get("error") if isinstance(summary.get("error"), str) else None
-    if result == "passed" and strong_contact_evidence:
-        return "passed", adapted, None
-    return "failed", adapted, None
-
-
-def classify_validation_summary(summary: dict[str, Any]) -> tuple[str, dict[str, Any], str | None]:
-    validation_status = summary.get("validation_status") or summary.get("status")
-    execution_status = summary.get("execution_status")
-    issue_summary = summary.get("summary") if isinstance(summary.get("summary"), dict) else {}
-    error_payload = summary.get("error") if isinstance(summary.get("error"), dict) else {}
-    issues = summary.get("issues") if isinstance(summary.get("issues"), list) else []
-    physics_blocking_issues = [
-        issue
-        for issue in issues
-        if isinstance(issue, dict)
-        and issue.get("rule") in PHYSICS_IMPACTING_VALIDATION_RULES
-        and issue.get("severity") in PHYSICS_BLOCKING_SEVERITIES
-    ]
-    adapted = {
-        "validation_status": validation_status,
-        "execution_status": execution_status,
-        "issue_count": issue_summary.get("issue_count"),
-        "severity_counts": issue_summary.get("severity_counts") or {},
-        "rule_counts": issue_summary.get("rule_counts") or {},
-        "physics_blocking_issue_count": len(physics_blocking_issues),
-        "physics_blocking_rules": sorted(
-            {str(issue.get("rule")) for issue in physics_blocking_issues if issue.get("rule")}
-        ),
-    }
-    if execution_status == "error" or validation_status == "blocked":
-        return "blocked", adapted, error_payload.get("message") if error_payload else None
-    if physics_blocking_issues:
-        return "failed", adapted, "Mesh validation found issues that can affect physics collision."
-    if validation_status in {"passed", "warning", "failed"}:
-        return "passed", adapted, None
-    return "failed", adapted, None
 
 
 class CollisionRunner:
@@ -94,6 +34,7 @@ class CollisionRunner:
         artifacts_dir: Path,
         container: str,
     ) -> list[str]:
+        request = normalize_collision_request(request)
         template_scene = self.resolve_template_scene(str(request.get("template_scene") or DEFAULT_TEMPLATE_SCENE))
         command = [
             self.config.host_python,
@@ -310,13 +251,13 @@ class JobWorker:
             if test_type == "collision":
                 if container is None:
                     raise ValueError("collision job requires an Isaac Sim Docker container")
+                request = normalize_collision_request(request)
                 completed = self.collision_runner.run(
                     request=request,
                     staged_asset=staged_asset,
                     artifacts_dir=artifacts_dir,
                     container=container,
                 )
-                classifier = classify_summary
                 missing_summary_error = "Runtime finished without summary.json."
             elif test_type == "mesh":
                 completed = self.mesh_runner.run(
@@ -324,7 +265,6 @@ class JobWorker:
                     staged_asset=staged_asset,
                     artifacts_dir=artifacts_dir,
                 )
-                classifier = classify_validation_summary
                 missing_summary_error = "Mesh validation finished without summary.json."
             else:
                 self.db.update_job_status(job["id"], "error", error=f"Unsupported test_type: {test_type}")
@@ -343,10 +283,14 @@ class JobWorker:
                 return
 
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
-            status, adapted_result, error = classifier(summary)
-            adapted_result["returncode"] = completed.returncode
+            normalized_report = normalize_job_summary(test_type, summary, returncode=completed.returncode)
             self._record_artifacts(job["id"], artifacts_dir)
-            self.db.update_job_status(job["id"], status, result=adapted_result, error=error)
+            self.db.update_job_status(
+                job["id"],
+                normalized_report.status,
+                result=normalized_report.result,
+                error=normalized_report.error,
+            )
         except subprocess.TimeoutExpired as exc:
             if artifacts_dir is not None:
                 self._write_timeout_log(artifacts_dir, exc)
@@ -384,7 +328,7 @@ class JobWorker:
         for path in sorted(item for item in artifacts_dir.rglob("*") if item.is_file()):
             relative_name = str(path.relative_to(artifacts_dir))
             content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-            kind = _artifact_kind(path)
+            kind = artifact_kind(path)
             self.db.insert_artifact(
                 job_id=job_id,
                 kind=kind,
@@ -393,20 +337,6 @@ class JobWorker:
                 content_type=content_type,
                 size=path.stat().st_size,
             )
-
-
-def _artifact_kind(path: Path) -> str:
-    if path.name == SUMMARY_FILENAME:
-        return "summary"
-    if path.name == RUNTIME_REPORT_FILENAME:
-        return "runtime_report"
-    if path.suffix.lower() == ".csv":
-        return "timeline"
-    if path.suffix.lower() in {".png", ".jpg", ".jpeg"}:
-        return "image"
-    if path.suffix.lower() == ".json":
-        return "json"
-    return "artifact"
 
 
 def _decode_timeout_output(value: bytes | str | None) -> str | None:

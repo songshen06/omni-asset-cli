@@ -15,6 +15,7 @@ except ImportError as exc:  # pragma: no cover - exercised only without api extr
 
 from .config import ServiceConfig, load_config_from_env
 from .db import Database, json_loads
+from .domain.collision import normalize_collision_request
 from .schemas import (
     ArtifactListResponse,
     ArtifactResponse,
@@ -162,12 +163,19 @@ def register_routes(app: FastAPI) -> FastAPI:
         asset = state.db.get_asset(scope["tenant_id"], project_id, request.asset_id)
         if asset is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset was not found.")
+        try:
+            normalized_request = normalize_collision_request(
+                _model_to_dict(request),
+                explicit_fields=_model_explicit_fields(request),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         job_id = state.db.insert_job(
             tenant_id=scope["tenant_id"],
             project_id=project_id,
             asset_id=request.asset_id,
             test_type="collision",
-            request=_model_to_dict(request),
+            request=normalized_request,
         )
         return JobCreateResponse(job_id=job_id, status="queued")
 
@@ -281,6 +289,13 @@ def _model_to_dict(model: object) -> dict[str, object]:
     if hasattr(model, "model_dump"):
         return model.model_dump()
     return model.dict()
+
+
+def _model_explicit_fields(model: object) -> set[str]:
+    fields = getattr(model, "model_fields_set", None)
+    if fields is not None:
+        return set(fields)
+    return set(getattr(model, "__fields_set__", set()))
 
 
 def _load_report_json(

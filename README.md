@@ -75,6 +75,7 @@ python3 omni_asset_cli.py physics-hit-test path/to/asset.usd \
 
 - 中文使用文档：[docs/USER_GUIDE.zh.md](docs/USER_GUIDE.zh.md)
 - English user guide: [docs/USER_GUIDE.en.md](docs/USER_GUIDE.en.md)
+- Testing notes / 测试说明: [docs/TESTING.md](docs/TESTING.md)
 - Deployment notes / 部署说明: [DEPLOYMENT.md](DEPLOYMENT.md)
 - Changelog / 更新说明: [CHANGELOG.md](CHANGELOG.md)
 - Agent skill package: [omni-asset-cli-agent/SKILL.md](omni-asset-cli-agent/SKILL.md)

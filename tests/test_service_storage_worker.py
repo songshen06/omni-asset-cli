@@ -10,6 +10,9 @@ from unittest.mock import patch
 
 from omni_asset_service.config import ServiceConfig, load_config_from_env
 from omni_asset_service.db import Database, json_loads
+from omni_asset_service.domain.artifacts import artifact_kind
+from omni_asset_service.domain.collision import normalize_collision_request
+from omni_asset_service.domain.reports import normalize_job_summary
 from omni_asset_service.storage import StorageError, write_upload_bytes
 from omni_asset_service.worker import CollisionRunner, JobWorker, MeshValidationRunner, classify_summary, classify_validation_summary
 
@@ -196,6 +199,76 @@ class ServiceStorageWorkerTests(unittest.TestCase):
         self.assertIn("runtime_report", kinds)
         self.assertIn("timeline", kinds)
 
+    def test_collision_asset_role_furniture_maps_to_replace_table(self) -> None:
+        normalized = normalize_collision_request({"asset_id": "asset_1", "asset_role": "furniture"})
+
+        self.assertEqual(normalized["asset_role"], "furniture")
+        self.assertEqual(normalized["placement_mode"], "replace-table")
+        self.assertEqual(normalized["hit_mode"], "top-drop")
+
+    def test_collision_asset_role_prop_maps_to_replace_box(self) -> None:
+        normalized = normalize_collision_request({"asset_id": "asset_1", "asset_role": "prop"})
+
+        self.assertEqual(normalized["asset_role"], "prop")
+        self.assertEqual(normalized["placement_mode"], "replace-box")
+        self.assertEqual(normalized["hit_mode"], "top-drop")
+
+    def test_collision_asset_role_omitted_preserves_existing_request(self) -> None:
+        request = {"asset_id": "asset_1", "placement_mode": "tabletop", "hit_mode": "side-hit"}
+
+        self.assertEqual(normalize_collision_request(request), request)
+
+    def test_collision_asset_role_none_is_removed_from_normalized_request(self) -> None:
+        normalized = normalize_collision_request(
+            {
+                "asset_id": "asset_1",
+                "asset_role": None,
+                "placement_mode": "replace-table",
+                "hit_mode": "top-drop",
+            }
+        )
+
+        self.assertNotIn("asset_role", normalized)
+        self.assertEqual(normalized["placement_mode"], "replace-table")
+
+    def test_collision_asset_role_conflicting_explicit_placement_mode_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            normalize_collision_request(
+                {"asset_id": "asset_1", "asset_role": "prop", "placement_mode": "replace-table"},
+                explicit_fields={"asset_id", "asset_role", "placement_mode"},
+            )
+
+    def test_collision_asset_role_ignores_default_placement_mode_when_not_explicit(self) -> None:
+        normalized = normalize_collision_request(
+            {"asset_id": "asset_1", "asset_role": "prop", "placement_mode": "replace-table"},
+            explicit_fields={"asset_id", "asset_role"},
+        )
+
+        self.assertEqual(normalized["placement_mode"], "replace-box")
+
+    def test_worker_normalizes_collision_asset_role_before_runner(self) -> None:
+        asset_id = self.create_asset()
+        job_id = self.db.insert_job(
+            tenant_id="tenant_a",
+            project_id="project_a",
+            asset_id=asset_id,
+            test_type="collision",
+            request={"asset_id": asset_id, "asset_role": "prop"},
+        )
+        runner = FakeRunner(
+            {
+                "result": "passed",
+                "checks": {"contact_report_detected": True},
+                "contact_evidence_level": "detected",
+            }
+        )
+        worker = JobWorker(db=self.db, config=self.config, runner=runner)
+
+        self.assertTrue(worker.run_once("isaac-sim-0"))
+        self.assertEqual(self.db.get_job("tenant_a", "project_a", job_id)["status"], "passed")
+        self.assertEqual(runner.calls[0]["request"]["placement_mode"], "replace-box")
+        self.assertEqual(runner.calls[0]["request"]["hit_mode"], "top-drop")
+
     def test_worker_does_not_pass_inferred_or_missing_contact(self) -> None:
         status, adapted, error = classify_summary(
             {
@@ -207,6 +280,19 @@ class ServiceStorageWorkerTests(unittest.TestCase):
         self.assertEqual(status, "failed")
         self.assertFalse(adapted["strong_contact_evidence"])
         self.assertIsNone(error)
+
+    def test_runtime_blocked_summary_stays_blocked_with_error(self) -> None:
+        status, adapted, error = classify_summary(
+            {
+                "result": "blocked",
+                "checks": {"contact_report_detected": False},
+                "contact_evidence_level": None,
+                "error": "runtime unavailable",
+            }
+        )
+        self.assertEqual(status, "blocked")
+        self.assertFalse(adapted["strong_contact_evidence"])
+        self.assertEqual(error, "runtime unavailable")
 
     def test_worker_blocks_when_no_container_is_configured(self) -> None:
         asset_id = self.create_asset()
@@ -325,6 +411,41 @@ class ServiceStorageWorkerTests(unittest.TestCase):
         self.assertEqual(adapted["physics_blocking_issue_count"], 0)
         self.assertIsNone(error)
 
+    def test_domain_report_normalization_adds_returncode(self) -> None:
+        normalized = normalize_job_summary(
+            "collision",
+            {
+                "result": "passed",
+                "checks": {"contact_report_detected": True},
+                "contact_evidence_level": "detected",
+            },
+            returncode=3,
+        )
+
+        self.assertEqual(normalized.status, "passed")
+        self.assertTrue(normalized.result["strong_contact_evidence"])
+        self.assertEqual(normalized.result["returncode"], 3)
+        self.assertIsNone(normalized.error)
+
+    def test_domain_report_normalization_rejects_unknown_test_type(self) -> None:
+        with self.assertRaises(ValueError):
+            normalize_job_summary("unknown", {}, returncode=0)
+
+    def test_domain_artifact_kind_mapping(self) -> None:
+        cases = {
+            "summary.json": "summary",
+            "runtime_report.json": "runtime_report",
+            "timeline.csv": "timeline",
+            "frame.png": "image",
+            "frame.jpg": "image",
+            "frame.jpeg": "image",
+            "process.json": "json",
+            "validation.md": "artifact",
+        }
+        for filename, expected in cases.items():
+            with self.subTest(filename=filename):
+                self.assertEqual(artifact_kind(Path(filename)), expected)
+
     def test_missing_summary_becomes_error(self) -> None:
         asset_id = self.create_asset()
         job_id = self.db.insert_job(
@@ -409,6 +530,30 @@ class ServiceStorageWorkerTests(unittest.TestCase):
         self.assertIn("12.0", command)
         self.assertIn("--render-video-crf", command)
         self.assertIn("24", command)
+
+    def test_collision_runner_builds_prop_role_as_replace_box_command(self) -> None:
+        runner = CollisionRunner(self.config)
+        command = runner.build_command(
+            request={"asset_role": "prop", "frames": 240},
+            staged_asset=self.root / "asset.usda",
+            artifacts_dir=self.root / "artifacts",
+            container="isaac-sim-0",
+        )
+
+        self.assertEqual(command[command.index("--placement-mode") + 1], "replace-box")
+        self.assertEqual(command[command.index("--hit-mode") + 1], "top-drop")
+
+    def test_collision_runner_builds_furniture_role_as_replace_table_command(self) -> None:
+        runner = CollisionRunner(self.config)
+        command = runner.build_command(
+            request={"asset_role": "furniture", "frames": 240},
+            staged_asset=self.root / "asset.usda",
+            artifacts_dir=self.root / "artifacts",
+            container="isaac-sim-0",
+        )
+
+        self.assertEqual(command[command.index("--placement-mode") + 1], "replace-table")
+        self.assertEqual(command[command.index("--hit-mode") + 1], "top-drop")
 
     def test_collision_runner_rejects_unsafe_template_scene_path(self) -> None:
         runner = CollisionRunner(self.config)
