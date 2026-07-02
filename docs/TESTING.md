@@ -59,6 +59,20 @@ python3 omni_asset_cli.py physics-hit-test path/to/asset.usd \
   --docker-workspace /workspace/omni-asset-cli
 ```
 
+For routine repeated checks, prefer the fixed workflow wrapper:
+
+```bash
+python3 omni_asset_cli.py stage1-runtime path/to/asset.usd \
+  --out out/asset_stage1_runtime
+```
+
+The wrapper runs `physics-env`, then the standard top-drop `physics-hit-test`,
+and records `workflow_report.json`, `workflow_commands.json`, step logs,
+`summary.json`, `runtime_report.json`, and `timeline.csv`. By default it uses
+the `standard` evidence preset: Docker access diagnostics, PhysX contact
+evidence, front/side/top/iso videos, and physics bbox overlays. Use
+`--evidence-preset contact-only` to skip video capture.
+
 Runtime validation should preserve `summary.json`, `runtime_report.json`,
 `timeline.csv`, rendered evidence when requested, the generated stage path, and
 the process log.

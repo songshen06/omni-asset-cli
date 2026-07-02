@@ -71,6 +71,21 @@ python3 omni_asset_cli.py physics-hit-test path/to/asset.usd \
   --docker-workspace /workspace/omni-asset-cli
 ```
 
+For the fixed Stage 1 runtime workflow, use the wrapper command. It runs the
+Docker preflight, executes the standard top-drop hit test, and writes
+`workflow_report.json` next to `summary.json`, `runtime_report.json`, and
+`timeline.csv`. The default `standard` evidence preset also captures
+front/side/top/iso videos with physics bbox overlays and records Docker access
+diagnostics in the workflow report:
+
+```bash
+python3 omni_asset_cli.py stage1-runtime path/to/asset.usd \
+  --out out/asset_stage1_runtime
+```
+
+Use `--evidence-preset contact-only` for a faster run that skips rendered
+video evidence.
+
 ## Documentation / 详细文档
 
 - 中文使用文档：[docs/USER_GUIDE.zh.md](docs/USER_GUIDE.zh.md)

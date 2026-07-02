@@ -482,17 +482,22 @@ def _reference_asset_under(
     rotation_y_deg: float = 0.0,
     rotation_z_deg: float = 0.0,
 ) -> Usd.Prim:
-    referenced_asset = UsdGeom.Xform.Define(stage, reference_path)
-    referenced_prim = referenced_asset.GetPrim()
-    _clear_xform_ops(referenced_prim)
-    referenced_xform = UsdGeom.Xformable(referenced_prim)
+    wrapper = UsdGeom.Xform.Define(stage, reference_path)
+    wrapper_prim = wrapper.GetPrim()
+    _clear_xform_ops(wrapper_prim)
+    wrapper_xform = UsdGeom.Xformable(wrapper_prim)
     if abs(float(rotation_y_deg)) > 1e-9:
-        referenced_xform.AddRotateYOp(UsdGeom.XformOp.PrecisionFloat).Set(float(rotation_y_deg))
+        wrapper_xform.AddRotateYOp(UsdGeom.XformOp.PrecisionFloat).Set(float(rotation_y_deg))
     if abs(float(rotation_z_deg)) > 1e-9:
-        referenced_xform.AddRotateZOp(UsdGeom.XformOp.PrecisionFloat).Set(float(rotation_z_deg))
+        wrapper_xform.AddRotateZOp(UsdGeom.XformOp.PrecisionFloat).Set(float(rotation_z_deg))
     unit_scale = _asset_units_to_stage_scale(asset_path, stage)
     if abs(unit_scale - 1.0) > 1e-9:
-        _append_scale_op(referenced_xform, Gf.Vec3f(unit_scale, unit_scale, unit_scale))
+        _append_scale_op(wrapper_xform, Gf.Vec3f(unit_scale, unit_scale, unit_scale))
+    # Keep unit conversion and orientation on a wrapper prim. Authoring them on
+    # the referenced prim itself can override the referenced default prim's own
+    # xformOps, including SimReady scale authored upstream.
+    referenced_asset = UsdGeom.Xform.Define(stage, f"{reference_path}/Asset")
+    referenced_prim = referenced_asset.GetPrim()
     referenced_prim.GetReferences().AddReference(str(asset_path.resolve()))
     stage.Load(referenced_prim.GetPath())
     return referenced_prim
@@ -993,9 +998,6 @@ def build_hit_test_stage(config: RuntimeConfig) -> SceneBuildResult:
     asset_range = align_asset_to_ground(stage, asset_prim)
     collider_paths = apply_static_colliders(asset_prim)
     if config.hit_mode == "top-drop":
-        bbox_collider_path = create_bbox_collider(stage, asset_range)
-        if bbox_collider_path and bbox_collider_path not in collider_paths:
-            collider_paths.append(bbox_collider_path)
         box_prim_path, box_initial_position, box_initial_velocity, box_size, drop_target_xy = create_top_drop_box(
             stage,
             asset_range,
@@ -1171,9 +1173,6 @@ def build_template_hit_test_stage(config: RuntimeConfig) -> SceneBuildResult:
         collider_paths = apply_static_colliders(injected_prim)
 
         if config.hit_mode == "top-drop":
-            bbox_collider_path = create_bbox_collider(stage, asset_range)
-            if bbox_collider_path and bbox_collider_path not in collider_paths:
-                collider_paths.append(bbox_collider_path)
             box_prim_path, box_initial_position, box_initial_velocity, box_size, drop_target_xy = create_top_drop_box(
                 stage,
                 asset_range,
@@ -1902,9 +1901,7 @@ def _collect_box_contact_events(
 
 
 def build_contact_report_summary(events: list[ContactEventSample], errors: list[str]) -> dict[str, Any]:
-    target_events = [
-        event for event in events if event.target_kind in {"asset_subtree", "guide_bbox", "registered_collider"}
-    ]
+    target_events = [event for event in events if event.target_kind in {"asset_subtree", "registered_collider"}]
     asset_events = [event for event in events if event.target_kind == "asset_subtree"]
     guide_events = [event for event in events if event.target_kind == "guide_bbox"]
     other_events = [event for event in events if event.target_kind == "other"]
@@ -1920,6 +1917,7 @@ def build_contact_report_summary(events: list[ContactEventSample], errors: list[
         "detected": len(target_events) > 0,
         "asset_subtree_detected": len(asset_events) > 0,
         "guide_bbox_detected": len(guide_events) > 0,
+        "guide_bbox_is_pass_evidence": False,
         "first_target_event": asdict(target_events[0]) if target_events else None,
         "events": [asdict(event) for event in events[:20]],
         "errors": errors[:10],
@@ -1982,6 +1980,31 @@ def _camera_target_and_radius(stage: Any, scene: SceneBuildResult) -> tuple[Any,
 
     view_range = Gf.Range3d()
     view_range.UnionWith(Gf.Range3d(asset_min, asset_max))
+    if scene.replaced_bbox_min is not None and scene.replaced_bbox_max is not None:
+        replaced_min = Gf.Vec3d(*scene.replaced_bbox_min)
+        replaced_max = Gf.Vec3d(*scene.replaced_bbox_max)
+        asset_span = asset_max - asset_min
+        center_x = float(scene.drop_target_xy[0]) if scene.drop_target_xy is not None else float((asset_min[0] + asset_max[0]) * 0.5)
+        center_y = float(scene.drop_target_xy[1]) if scene.drop_target_xy is not None else float((asset_min[1] + asset_max[1]) * 0.5)
+        replaced_half_x = max(float(replaced_max[0] - replaced_min[0]) * 0.5, 1.0)
+        replaced_half_y = max(float(replaced_max[1] - replaced_min[1]) * 0.5, 1.0)
+        context_half_x = min(
+            replaced_half_x,
+            max(float(asset_span[0]) * 2.5, box_extent * 5.0, 35.0),
+        )
+        context_half_y = min(
+            replaced_half_y,
+            max(float(asset_span[1]) * 2.5, box_extent * 5.0, 35.0),
+        )
+        # Use the replacement/table prim for horizontal framing and contact
+        # plane context, but do not let table legs or lower support geometry
+        # pull the camera target below the asset/contact animation.
+        view_range.UnionWith(
+            Gf.Range3d(
+                Gf.Vec3d(center_x - context_half_x, center_y - context_half_y, min(float(asset_min[2]), float(replaced_max[2]))),
+                Gf.Vec3d(center_x + context_half_x, center_y + context_half_y, max(float(asset_max[2]), float(replaced_max[2]))),
+            )
+        )
     view_range.UnionWith(
         Gf.Range3d(
             box_start - Gf.Vec3d(box_extent, box_extent, box_extent),
@@ -2006,10 +2029,10 @@ def _camera_target_and_radius(stage: Any, scene: SceneBuildResult) -> tuple[Any,
     target = (view_min + view_max) * 0.5
     size = view_max - view_min
     radius = max(
-        float(size[0]) * 1.35,
-        float(size[1]) * 1.35,
-        float(size[2]) * 1.45,
-        box_extent * 6.0,
+        float(size[0]) * 1.8,
+        float(size[1]) * 1.8,
+        float(size[2]) * 1.55,
+        box_extent * 7.0,
         85.0,
     )
     return target, radius
@@ -2018,16 +2041,25 @@ def _camera_target_and_radius(stage: Any, scene: SceneBuildResult) -> tuple[Any,
 def _camera_offset(preset: str, radius: float) -> Any:
     _ensure_pxr_loaded()
     if preset == "front":
-        return Gf.Vec3d(0.0, -radius * 1.8, radius * 0.45)
+        return Gf.Vec3d(0.0, -radius * 2.2, radius * 0.55)
     if preset == "back":
-        return Gf.Vec3d(0.0, radius * 1.8, radius * 0.45)
+        return Gf.Vec3d(0.0, radius * 2.2, radius * 0.55)
     if preset == "left":
-        return Gf.Vec3d(-radius * 1.8, 0.0, radius * 0.45)
+        return Gf.Vec3d(-radius * 2.2, 0.0, radius * 0.55)
     if preset in {"right", "side"}:
-        return Gf.Vec3d(radius * 1.8, 0.0, radius * 0.45)
+        return Gf.Vec3d(radius * 2.2, 0.0, radius * 0.55)
     if preset == "top":
-        return Gf.Vec3d(0.0, -radius * 0.02, radius * 2.1)
-    return Gf.Vec3d(radius * 1.25, -radius * 1.25, radius * 0.85)
+        return Gf.Vec3d(0.0, -radius * 0.02, radius * 2.4)
+    return Gf.Vec3d(radius * 1.75, -radius * 1.75, radius * 0.95)
+
+
+def _configure_wide_camera(camera: Any, preset: str, radius: float) -> float:
+    focal_length = 22.0 if preset == "top" else 24.0
+    camera.CreateFocalLengthAttr(focal_length)
+    camera.CreateHorizontalApertureAttr(60.0)
+    camera.CreateVerticalApertureAttr(33.75)
+    camera.CreateClippingRangeAttr(Gf.Vec2f(0.1, max(radius * 30.0, 1000.0)))
+    return focal_length
 
 
 def _prepare_render_cameras(stage: Any, scene: SceneBuildResult, config: RuntimeConfig) -> list[dict[str, str | None]]:
@@ -2055,18 +2087,24 @@ def _prepare_render_cameras(stage: Any, scene: SceneBuildResult, config: Runtime
             _clear_xform_ops(camera.GetPrim())
             matrix = _look_at_matrix(eye, target)
             UsdGeom.Xformable(camera.GetPrim()).AddTransformOp().Set(matrix)
-            camera.CreateFocalLengthAttr(35.0 if preset == "top" else 45.0)
-            camera.CreateClippingRangeAttr(Gf.Vec2f(0.1, max(radius * 20.0, 1000.0)))
+            focal_length = _configure_wide_camera(camera, preset, radius)
             capture_camera_path = str(camera_path)
             if index == 0:
                 active_camera_path = Sdf.Path("/World/Camera")
                 active_camera = UsdGeom.Camera.Define(stage, active_camera_path)
                 _clear_xform_ops(active_camera.GetPrim())
                 UsdGeom.Xformable(active_camera.GetPrim()).AddTransformOp().Set(matrix)
-                active_camera.CreateFocalLengthAttr(35.0 if preset == "top" else 45.0)
-                active_camera.CreateClippingRangeAttr(Gf.Vec2f(0.1, max(radius * 20.0, 1000.0)))
+                _configure_wide_camera(active_camera, preset, radius)
                 capture_camera_path = str(active_camera_path)
-            specs.append({"name": name, "preset": preset, "camera_path": capture_camera_path})
+            specs.append({
+                "name": name,
+                "preset": preset,
+                "camera_path": capture_camera_path,
+                "target": str(tuple(round(float(value), 4) for value in target)),
+                "eye": str(tuple(round(float(value), 4) for value in eye)),
+                "radius": f"{radius:.4f}",
+                "focal_length": f"{focal_length:.4f}",
+            })
         return specs
     finally:
         stage.SetEditTarget(old_target)

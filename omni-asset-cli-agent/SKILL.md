@@ -27,6 +27,7 @@ Use these entry points:
 - Natural language mapping: `.venv/bin/python omni_asset_cli.py map <asset> "check mesh topology"`
 - Isaac Sim runtime readiness, preferred in this workspace: `python3 omni_asset_cli.py physics-env --runtime-docker-container isaac-sim`
 - Isaac Sim runtime readiness by image: `python3 omni_asset_cli.py physics-env --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0`
+- Fixed Stage 1 runtime workflow: `python3 omni_asset_cli.py stage1-runtime <asset> --out out/<name>_stage1_runtime`
 - Runtime top-drop hit test: `python3 omni_asset_cli.py physics-hit-test <asset> --template-scene examples/mini_test.usda --placement-mode replace-table --hit-mode top-drop --size-policy preserve --frames 240 --out out/<name>_hit --runtime-docker-container isaac-sim --docker-workspace /workspace/omni-asset-cli`
 - SimReady flywheel: `python3 omni_asset_cli.py simready-flywheel <asset> --out out/<name>_flywheel --runtime-docker-container isaac-sim --docker-workspace /workspace/omni-asset-cli`
 - Topology issue render: `.venv/bin/python omniverse-usd-asset-validator/scripts/render_mesh_topology_issues.py <staged_asset> --out out/<name>_mesh_wire_render --mesh-path <mesh_prim_path>`
@@ -111,6 +112,19 @@ Runtime Docker options:
 - `--runtime-docker-preflight restart` is the CLI default for clean container execution. Use `auto` to restart only when stale Isaac/Kit processes are detected, `check` to block instead of restarting, and `skip` only when the user explicitly wants no preflight.
 - Keep `--no-headless` off unless the user has configured a visible Isaac Sim session. The normal runtime path uses `SimulationApp({"headless": True})`.
 
+Before choosing a runtime test, classify the asset from its filename, prompt
+metadata, inspect report shape hints, dimensions, and a quick render when
+available. Do not reuse one placement mode for a whole batch when the assets
+are different object classes.
+
+Stage 1 placement decision:
+
+- Furniture that replaces a table or support object: use `--placement-mode replace-table`. This includes chairs, tables, desks, stools, benches, cabinets, shelves, sofas, and larger furniture. The asset should replace the template table target, then the box should top-drop onto the replaced asset.
+- Small tabletop props: use `--placement-mode tabletop`. This includes cups, bottles, cans, vases, decor props, small tools, toys, and objects that should sit on an existing table.
+- Round sports balls and similar props: usually use `--placement-mode tabletop` for prop-on-surface validation unless the user explicitly asks to test the asset as the falling dynamic actor.
+- Dynamic actor debugging: use `--placement-mode replace-box` only when the user wants the input asset to be the falling object.
+- If classification is uncertain, inspect or render first, state the assumption, and pick the most conservative placement for the asset's likely role. Re-run with the corrected placement when visual evidence or user feedback identifies the object class.
+
 Stage 1 placement options:
 
 - `--placement-mode replace-table`: furniture and larger support surfaces; replaces the template table target.
@@ -122,6 +136,16 @@ For top-drop tests, prefer PhysX contact evidence:
 
 - Strong pass: `checks.contact_report_detected == true` and `contact_evidence_level == "detected"`
 - Weak evidence: motion-only inference
+- Do not count debug/default-prim/fallback bbox overlays as real collider contact evidence. Strong contact should hit the asset subtree or another registered real collider path. If contact only hits a guide bbox, treat it as a test-logic issue and rerun with the correct placement or harness settings.
+
+When the user asks for the standard repeated Stage 1 runtime check, prefer
+`stage1-runtime` over manually running `physics-env` and `physics-hit-test`.
+It preserves the expanded commands in `workflow_commands.json`, writes logs for
+Docker access, preflight, and hit-test steps, and summarizes
+pass/fail/contact evidence in `workflow_report.json`. Its default `standard`
+evidence preset captures front/side/top/iso videos with physics bbox overlays.
+Use `--evidence-preset contact-only` only when the user wants a faster
+structured-evidence-only run.
 
 For rendered physics bbox evidence, stay inside `physics-hit-test` and add:
 

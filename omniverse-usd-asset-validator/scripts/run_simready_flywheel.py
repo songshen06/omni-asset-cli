@@ -114,10 +114,17 @@ def _mass_status(source_report: dict[str, Any] | None, fixed_report: dict[str, A
     }
 
 
-def _bbox_size(report: dict[str, Any] | None) -> Any:
+def _bbox_size_cm(report: dict[str, Any] | None) -> Any:
     if not report:
         return None
-    return (((report.get("geometry") or {}).get("bbox") or {}).get("world") or {}).get("size")
+    size = (((report.get("geometry") or {}).get("bbox") or {}).get("world") or {}).get("size")
+    if not isinstance(size, list) or len(size) != 3:
+        return size
+    try:
+        meters_per_unit = float(((report.get("stage") or {}).get("meters_per_unit")) or 0.01)
+        return [round(float(item) * meters_per_unit * 100.0, 6) for item in size]
+    except (TypeError, ValueError):
+        return size
 
 
 def _size_status(source_report: dict[str, Any] | None, fixed_report: dict[str, Any] | None, recommendation: dict[str, Any] | None) -> dict[str, Any]:
@@ -127,8 +134,8 @@ def _size_status(source_report: dict[str, Any] | None, fixed_report: dict[str, A
     expectations = (recommendation or {}).get("simready_expectations") or (fixed_report or {}).get("simready_expectations") or {}
     return {
         "status": size_recommendation.get("status") or "unknown",
-        "source_bbox_size_cm": _bbox_size(source_report),
-        "fixed_bbox_size_cm": _bbox_size(fixed_report),
+        "source_bbox_size_cm": _bbox_size_cm(source_report),
+        "fixed_bbox_size_cm": _bbox_size_cm(fixed_report),
         "reference_target_bbox_cm": size_recommendation.get("reference_target_bbox"),
         "expected_authored_bbox_size_cm": expectations.get("expected_authored_bbox_size_cm"),
         "apply_reference_scale": bool(authoring.get("apply_reference_scale")),
@@ -273,8 +280,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--validator-python", help="Python executable for omni-asset-cli validator scripts")
     parser.add_argument("--output-format", choices=["usda", "usdc"], default="usdc")
     parser.add_argument("--max-prims", type=int, default=0)
+    parser.add_argument(
+        "--content-label",
+        help=(
+            "Optional normalized content label passed to usd-simready-inspector for built-in "
+            "physical size priors, e.g. wine_bottle, chair, basketball, soccer_ball."
+        ),
+    )
+    parser.add_argument(
+        "--target-bbox-cm",
+        help="Explicit target bbox in centimeters as X,Y,Z; overrides any content-label size prior.",
+    )
     parser.add_argument("--skip-validator", action="store_true")
     parser.add_argument("--skip-runtime", action="store_true")
+    parser.add_argument(
+        "--allow-mesh-defects",
+        action="store_true",
+        help="Pass --allow-mesh-defects to usd-simready-inspector process",
+    )
+    parser.add_argument(
+        "--allow-missing-assets",
+        action="store_true",
+        help="Pass --allow-missing-assets to usd-simready-inspector process",
+    )
     parser.add_argument("--template-scene", type=Path, default=REPO_ROOT / "examples" / "mini_test.usda")
     parser.add_argument("--frames", type=int, default=240)
     parser.add_argument("--fps", type=float, default=60.0)
@@ -384,6 +412,14 @@ def main() -> int:
         "--max-prims",
         str(args.max_prims),
     ]
+    if args.content_label:
+        process_cmd.extend(["--content-label", args.content_label])
+    if args.target_bbox_cm:
+        process_cmd.extend(["--target-bbox-cm", args.target_bbox_cm])
+    if args.allow_mesh_defects:
+        process_cmd.append("--allow-mesh-defects")
+    if args.allow_missing_assets:
+        process_cmd.append("--allow-missing-assets")
     steps["simready_process"] = _run(process_cmd, inspector_root)
 
     if fixed_usd.exists() and not args.skip_validator:

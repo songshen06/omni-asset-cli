@@ -216,10 +216,18 @@ def build_simready_flywheel_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--output-format", args.output_format])
     if args.max_prims is not None:
         command.extend(["--max-prims", str(args.max_prims)])
+    if args.content_label:
+        command.extend(["--content-label", args.content_label])
+    if args.target_bbox_cm:
+        command.extend(["--target-bbox-cm", args.target_bbox_cm])
     if args.skip_validator:
         command.append("--skip-validator")
     if args.skip_runtime:
         command.append("--skip-runtime")
+    if args.allow_mesh_defects:
+        command.append("--allow-mesh-defects")
+    if args.allow_missing_assets:
+        command.append("--allow-missing-assets")
     if args.template_scene:
         command.extend(["--template-scene", args.template_scene])
     if args.frames is not None:
@@ -254,6 +262,73 @@ def build_simready_flywheel_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--render-wait-updates", str(args.render_wait_updates)])
     if args.render_video:
         command.append("--render-video")
+    if args.render_video_fps is not None:
+        command.extend(["--render-video-fps", str(args.render_video_fps)])
+    if args.render_video_crf is not None:
+        command.extend(["--render-video-crf", str(args.render_video_crf)])
+    if args.render_physics_bboxes:
+        command.append("--render-physics-bboxes")
+    if args.render_physics_bbox_fallback_default_prim:
+        command.append("--render-physics-bbox-fallback-default-prim")
+    if args.render_physics_bbox_width is not None:
+        command.extend(["--render-physics-bbox-width", str(args.render_physics_bbox_width)])
+
+    return command
+
+
+def build_stage1_runtime_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(script_path("run_stage1_runtime_workflow.py")), args.asset]
+
+    if args.out:
+        command.extend(["--out", args.out])
+    if args.template_scene:
+        command.extend(["--template-scene", args.template_scene])
+    if args.placement_mode:
+        command.extend(["--placement-mode", args.placement_mode])
+    if args.size_policy:
+        command.extend(["--size-policy", args.size_policy])
+    if args.frames is not None:
+        command.extend(["--frames", str(args.frames)])
+    if args.fps is not None:
+        command.extend(["--fps", str(args.fps)])
+    if args.asset_rotation_y_deg:
+        command.extend(["--asset-rotation-y-deg", str(args.asset_rotation_y_deg)])
+    if args.asset_rotation_z_deg:
+        command.extend(["--asset-rotation-z-deg", str(args.asset_rotation_z_deg)])
+    if args.runtime_docker_container:
+        command.extend(["--runtime-docker-container", args.runtime_docker_container])
+    if args.runtime_docker_image:
+        command.extend(["--runtime-docker-image", args.runtime_docker_image])
+    if args.no_default_container:
+        command.append("--no-default-container")
+    if args.runtime_docker_preflight:
+        command.extend(["--runtime-docker-preflight", args.runtime_docker_preflight])
+    if args.docker_workspace:
+        command.extend(["--docker-workspace", args.docker_workspace])
+    if args.docker_python:
+        command.extend(["--docker-python", args.docker_python])
+    if args.evidence_preset:
+        command.extend(["--evidence-preset", args.evidence_preset])
+    if args.render_frames:
+        command.append("--render-frames")
+    if args.render_every_n_frames is not None:
+        command.extend(["--render-every-n-frames", str(args.render_every_n_frames)])
+    for item in args.render_camera_preset:
+        command.extend(["--render-camera-preset", item])
+    if args.render_backend:
+        command.extend(["--render-backend", args.render_backend])
+    if args.render_width is not None:
+        command.extend(["--render-width", str(args.render_width)])
+    if args.render_height is not None:
+        command.extend(["--render-height", str(args.render_height)])
+    if args.render_rt_subframes is not None:
+        command.extend(["--render-rt-subframes", str(args.render_rt_subframes)])
+    if args.render_wait_updates is not None:
+        command.extend(["--render-wait-updates", str(args.render_wait_updates)])
+    if args.render_video:
+        command.append("--render-video")
+    if args.render_video_style:
+        command.extend(["--render-video-style", args.render_video_style])
     if args.render_video_fps is not None:
         command.extend(["--render-video-fps", str(args.render_video_fps)])
     if args.render_video_crf is not None:
@@ -312,6 +387,10 @@ def cmd_physics_env(args: argparse.Namespace) -> int:
 
 def cmd_simready_flywheel(args: argparse.Namespace) -> int:
     return passthrough(build_simready_flywheel_command(args))
+
+
+def cmd_stage1_runtime(args: argparse.Namespace) -> int:
+    return passthrough(build_stage1_runtime_command(args))
 
 
 def cmd_gallery(args: argparse.Namespace) -> int:
@@ -612,8 +691,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Format for the repaired SimReady USD",
     )
     flywheel_parser.add_argument("--max-prims", type=int, default=0)
+    flywheel_parser.add_argument(
+        "--content-label",
+        help=(
+            "Optional normalized content label used by usd-simready-inspector for built-in "
+            "physical size priors, e.g. wine_bottle, chair, basketball, soccer_ball."
+        ),
+    )
+    flywheel_parser.add_argument(
+        "--target-bbox-cm",
+        help="Explicit target bbox in centimeters as X,Y,Z; overrides any content-label size prior.",
+    )
     flywheel_parser.add_argument("--skip-validator", action="store_true")
     flywheel_parser.add_argument("--skip-runtime", action="store_true")
+    flywheel_parser.add_argument(
+        "--allow-mesh-defects",
+        action="store_true",
+        help="Pass through to usd-simready-inspector process when mesh preflight defects are explicitly accepted",
+    )
+    flywheel_parser.add_argument(
+        "--allow-missing-assets",
+        action="store_true",
+        help="Pass through to usd-simready-inspector process when missing asset dependencies are explicitly accepted",
+    )
     flywheel_parser.add_argument(
         "--template-scene",
         default=str(REPO_ROOT / "examples" / "mini_test.usda"),
@@ -656,6 +756,91 @@ def build_parser() -> argparse.ArgumentParser:
     flywheel_parser.add_argument("--render-physics-bbox-fallback-default-prim", action="store_true")
     flywheel_parser.add_argument("--render-physics-bbox-width", type=float, default=0.0)
     flywheel_parser.set_defaults(func=cmd_simready_flywheel)
+
+    stage1_runtime_parser = subparsers.add_parser(
+        "stage1-runtime",
+        help="Run the fixed Stage 1 Docker runtime workflow: preflight, top-drop hit test, and evidence report",
+    )
+    stage1_runtime_parser.add_argument("asset", help="Path to the USD asset")
+    stage1_runtime_parser.add_argument("--out", help="Output directory for workflow artifacts")
+    stage1_runtime_parser.add_argument(
+        "--template-scene",
+        default=str(REPO_ROOT / "examples" / "mini_test.usda"),
+        help="Isaac Sim physics template scene used by the top-drop runtime test",
+    )
+    stage1_runtime_parser.add_argument(
+        "--placement-mode",
+        choices=["replace-table", "tabletop", "replace-box"],
+        default="replace-table",
+        help="Stage 1 placement strategy",
+    )
+    stage1_runtime_parser.add_argument(
+        "--size-policy",
+        choices=["preserve", "template-fit"],
+        default="preserve",
+        help="Whether to preserve the asset's authored size",
+    )
+    stage1_runtime_parser.add_argument("--frames", type=int, default=240)
+    stage1_runtime_parser.add_argument("--fps", type=float, default=60.0)
+    stage1_runtime_parser.add_argument("--asset-rotation-y-deg", type=float, default=0.0)
+    stage1_runtime_parser.add_argument("--asset-rotation-z-deg", type=float, default=0.0)
+    stage1_runtime_parser.add_argument(
+        "--runtime-docker-container",
+        help="Optional running Isaac Sim container name or ID. Defaults to isaac-sim unless --runtime-docker-image is supplied.",
+    )
+    stage1_runtime_parser.add_argument(
+        "--runtime-docker-image",
+        help="Isaac Sim Docker image, such as nvcr.io/nvidia/isaac-sim:5.1.0",
+    )
+    stage1_runtime_parser.add_argument(
+        "--no-default-container",
+        action="store_true",
+        help="Do not default to the isaac-sim running container when no image/container is supplied",
+    )
+    stage1_runtime_parser.add_argument(
+        "--runtime-docker-preflight",
+        choices=["auto", "check", "restart", "skip"],
+        default="restart",
+    )
+    stage1_runtime_parser.add_argument(
+        "--docker-workspace",
+        default="/workspace/omni-asset-cli",
+        help="Repository mount path inside the Isaac Sim container",
+    )
+    stage1_runtime_parser.add_argument(
+        "--docker-python",
+        default="/isaac-sim/python.sh",
+        help="Isaac Sim Python launcher path inside the container",
+    )
+    stage1_runtime_parser.add_argument(
+        "--evidence-preset",
+        choices=["standard", "contact-only", "custom"],
+        default="standard",
+        help=(
+            "Evidence bundle to collect. standard records PhysX contact evidence plus "
+            "front/side/top/iso videos with physics bbox overlays."
+        ),
+    )
+    stage1_runtime_parser.add_argument("--render-frames", action="store_true")
+    stage1_runtime_parser.add_argument("--render-every-n-frames", type=int)
+    stage1_runtime_parser.add_argument("--render-camera-preset", action="append", default=[])
+    stage1_runtime_parser.add_argument("--render-backend", choices=["replicator", "viewport"], default="replicator")
+    stage1_runtime_parser.add_argument("--render-width", type=int, default=1280)
+    stage1_runtime_parser.add_argument("--render-height", type=int, default=720)
+    stage1_runtime_parser.add_argument("--render-rt-subframes", type=int, default=4)
+    stage1_runtime_parser.add_argument("--render-wait-updates", type=int, default=20)
+    stage1_runtime_parser.add_argument("--render-video", action="store_true")
+    stage1_runtime_parser.add_argument(
+        "--render-video-style",
+        choices=["hit-test", "asset-table-drop"],
+        default="hit-test",
+    )
+    stage1_runtime_parser.add_argument("--render-video-fps", type=float)
+    stage1_runtime_parser.add_argument("--render-video-crf", type=int, default=23)
+    stage1_runtime_parser.add_argument("--render-physics-bboxes", action="store_true")
+    stage1_runtime_parser.add_argument("--render-physics-bbox-fallback-default-prim", action="store_true")
+    stage1_runtime_parser.add_argument("--render-physics-bbox-width", type=float, default=0.0)
+    stage1_runtime_parser.set_defaults(func=cmd_stage1_runtime)
 
     gallery_parser = subparsers.add_parser(
         "gallery",
