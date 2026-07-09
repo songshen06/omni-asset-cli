@@ -108,6 +108,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--render-physics-bboxes", action="store_true")
     parser.add_argument("--render-physics-bbox-fallback-default-prim", action="store_true")
     parser.add_argument("--render-physics-bbox-width", type=float, default=0.0)
+    parser.add_argument(
+        "--contact-timeout-seconds",
+        type=float,
+        default=900.0,
+        help="Hard timeout for the contact-evidence hit test. 0 disables the timeout.",
+    )
+    parser.add_argument(
+        "--visual-timeout-seconds",
+        type=float,
+        default=900.0,
+        help="Hard timeout for visual/video evidence. 0 disables the timeout.",
+    )
     return parser.parse_args()
 
 
@@ -221,12 +233,61 @@ def read_json(path: Path) -> dict[str, Any] | None:
         return None
 
 
-def run_capture(command: list[str], stdout_path: Path, stderr_path: Path) -> int:
+def _timeout_value(seconds: float | None) -> float | None:
+    if seconds is None or seconds <= 0:
+        return None
+    return float(seconds)
+
+
+def _terminate_runtime_children(args: argparse.Namespace, out_dir: Path) -> None:
+    container, _image = effective_runtime(args)
+    if not container:
+        return
+    docker_out_dir = str(out_dir)
+    workspace = str(args.docker_workspace).rstrip("/")
+    repo_root = str(REPO_ROOT.resolve())
+    inspector_root = str((Path.home() / "usd-simready-inspector").resolve())
+    if docker_out_dir.startswith(repo_root + "/"):
+        docker_out_dir = f"{workspace}/{docker_out_dir[len(repo_root) + 1:]}"
+    elif docker_out_dir.startswith(inspector_root + "/"):
+        docker_out_dir = f"/workspace/external/usd-simready-inspector/{docker_out_dir[len(inspector_root) + 1:]}"
+    command = [
+        "docker",
+        "exec",
+        container,
+        "pkill",
+        "-f",
+        f"run_physics_hit_test.py.*{docker_out_dir}",
+    ]
+    subprocess.run(command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def run_capture(
+    command: list[str],
+    stdout_path: Path,
+    stderr_path: Path,
+    timeout_seconds: float | None = None,
+    timeout_cleanup: Any | None = None,
+) -> int:
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
-            completed = subprocess.run(command, check=False, stdout=stdout, stderr=stderr)
+            completed = subprocess.run(
+                command,
+                check=False,
+                stdout=stdout,
+                stderr=stderr,
+                timeout=_timeout_value(timeout_seconds),
+            )
         return completed.returncode
+    except subprocess.TimeoutExpired as exc:
+        if timeout_cleanup is not None:
+            timeout_cleanup()
+        stdout_path.write_text((exc.stdout or "") if isinstance(exc.stdout, str) else "", encoding="utf-8")
+        timeout_note = f"TimeoutExpired: command exceeded {timeout_seconds:g} seconds\n"
+        stderr_text = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
+        stderr_path.write_text(timeout_note + stderr_text, encoding="utf-8")
+        return 124
     except FileNotFoundError as exc:
         stdout_path.write_text("", encoding="utf-8")
         stderr_path.write_text(f"{type(exc).__name__}: {exc}\n", encoding="utf-8")
@@ -537,11 +598,15 @@ def main() -> int:
                 contact_hit_test,
                 contact_out_dir / "workflow_physics_hit_test.stdout.txt",
                 contact_out_dir / "workflow_physics_hit_test.stderr.txt",
+                timeout_seconds=args.contact_timeout_seconds,
+                timeout_cleanup=lambda: _terminate_runtime_children(args, contact_out_dir),
             )
         hit_returncode = run_capture(
             hit_test,
             out_dir / "workflow_physics_hit_test.stdout.txt",
             out_dir / "workflow_physics_hit_test.stderr.txt",
+            timeout_seconds=args.visual_timeout_seconds,
+            timeout_cleanup=lambda: _terminate_runtime_children(args, out_dir),
         )
         encode_hit_test_videos_on_host(args, out_dir)
     else:

@@ -339,6 +339,10 @@ def build_stage1_runtime_command(args: argparse.Namespace) -> list[str]:
         command.append("--render-physics-bbox-fallback-default-prim")
     if args.render_physics_bbox_width is not None:
         command.extend(["--render-physics-bbox-width", str(args.render_physics_bbox_width)])
+    if args.contact_timeout_seconds is not None:
+        command.extend(["--contact-timeout-seconds", str(args.contact_timeout_seconds)])
+    if args.visual_timeout_seconds is not None:
+        command.extend(["--visual-timeout-seconds", str(args.visual_timeout_seconds)])
 
     return command
 
@@ -840,6 +844,18 @@ def build_parser() -> argparse.ArgumentParser:
     stage1_runtime_parser.add_argument("--render-physics-bboxes", action="store_true")
     stage1_runtime_parser.add_argument("--render-physics-bbox-fallback-default-prim", action="store_true")
     stage1_runtime_parser.add_argument("--render-physics-bbox-width", type=float, default=0.0)
+    stage1_runtime_parser.add_argument(
+        "--contact-timeout-seconds",
+        type=float,
+        default=900.0,
+        help="Hard timeout for the contact-evidence hit test. 0 disables the timeout.",
+    )
+    stage1_runtime_parser.add_argument(
+        "--visual-timeout-seconds",
+        type=float,
+        default=900.0,
+        help="Hard timeout for visual/video evidence. 0 disables the timeout.",
+    )
     stage1_runtime_parser.set_defaults(func=cmd_stage1_runtime)
 
     gallery_parser = subparsers.add_parser(

@@ -83,8 +83,34 @@ python3 omni_asset_cli.py stage1-runtime path/to/asset.usd \
   --out out/asset_stage1_runtime
 ```
 
-Use `--evidence-preset contact-only` for a faster run that skips rendered
-video evidence.
+For customer demos, treat PhysX contact evidence as the required proof and
+rendered video as optional presentation material. The workflow runs a
+contact-only pass first and stores the authoritative result under
+`OUT/contact_evidence/`. A strong runtime pass means:
+
+```text
+checks.contact_report_detected == true
+contact_evidence_level == "detected"
+```
+
+Rendered video can be slow or unavailable on some Isaac Sim setups, so
+`stage1-runtime` has separate timeouts for structured contact evidence and
+visual evidence:
+
+```bash
+python3 omni_asset_cli.py stage1-runtime path/to/asset.usd \
+  --out out/asset_stage1_runtime \
+  --runtime-docker-container isaac-sim \
+  --runtime-docker-preflight auto \
+  --evidence-preset standard \
+  --contact-timeout-seconds 900 \
+  --visual-timeout-seconds 180
+```
+
+If the visual pass times out, `workflow_report.json` is still written and the
+contact evidence remains usable for a downstream customer report. Use
+`--evidence-preset contact-only` for the most stable fast path when video is
+not required.
 
 ## Documentation / 详细文档
 

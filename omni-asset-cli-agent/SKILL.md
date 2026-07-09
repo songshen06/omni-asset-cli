@@ -141,11 +141,32 @@ For top-drop tests, prefer PhysX contact evidence:
 When the user asks for the standard repeated Stage 1 runtime check, prefer
 `stage1-runtime` over manually running `physics-env` and `physics-hit-test`.
 It preserves the expanded commands in `workflow_commands.json`, writes logs for
-Docker access, preflight, and hit-test steps, and summarizes
-pass/fail/contact evidence in `workflow_report.json`. Its default `standard`
-evidence preset captures front/side/top/iso videos with physics bbox overlays.
-Use `--evidence-preset contact-only` only when the user wants a faster
-structured-evidence-only run.
+Docker access, preflight, contact, and visual steps, and summarizes
+pass/fail/contact evidence in `workflow_report.json`.
+
+For reliable customer demos, treat PhysX contact report as the required proof
+and video as optional presentation material. The `standard` evidence preset
+runs a contact-only pass first and stores the authoritative files under
+`OUT/contact_evidence/`. A strong pass requires
+`checks.contact_report_detected == true` and
+`contact_evidence_level == "detected"`.
+
+Recommended stable demo command:
+
+```bash
+python3 omni_asset_cli.py stage1-runtime <asset> \
+  --out out/<name>_stage1_runtime \
+  --runtime-docker-container isaac-sim \
+  --runtime-docker-preflight auto \
+  --evidence-preset standard \
+  --contact-timeout-seconds 900 \
+  --visual-timeout-seconds 180
+```
+
+If the visual pass times out, use `OUT/contact_evidence/summary.json` and
+`OUT/contact_evidence/runtime_report.json` for downstream customer reports.
+Use `--evidence-preset contact-only` for the most stable structured-evidence
+run when video is not required.
 
 For rendered physics bbox evidence, stay inside `physics-hit-test` and add:
 
