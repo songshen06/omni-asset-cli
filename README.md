@@ -112,6 +112,43 @@ contact evidence remains usable for a downstream customer report. Use
 `--evidence-preset contact-only` for the most stable fast path when video is
 not required.
 
+For customer-facing reports that require video, run a publish gate after
+`stage1-runtime`:
+
+```bash
+ffprobe -v error \
+  -show_entries format=duration,size \
+  -show_entries stream=codec_type,codec_name,width,height,nb_frames \
+  -of json OUT/render_videos/front.mp4
+```
+
+Only use non-empty MP4 files with real rendered frames from the same workflow
+output directory as the accepted `summary.json` / `runtime_report.json`, or
+from a documented retry using the same input USD and same SimReady output USD.
+Do not substitute synthetic placeholder videos, old videos from another run, or
+videos for a different asset. If visual rendering stops at
+`capture-first-frame-start` and stderr shows `cudaErrorNoDevice`, the contact
+result under `OUT/contact_evidence/` is still valid, but the video pass did not
+finish. Correct it by rerunning on a CUDA-capable Isaac Sim container, or by
+using the more stable host-encoded hit-test path:
+
+```bash
+python3 omni_asset_cli.py physics-hit-test path/to/asset.usd \
+  --template-scene examples/mini_test.usda \
+  --placement-mode tabletop \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --render-video \
+  --render-video-style hit-test \
+  --render-camera-preset front \
+  --render-every-n-frames 2 \
+  --render-video-fps 30 \
+  --out OUT_video_retry \
+  --runtime-docker-container isaac-sim \
+  --docker-workspace /workspace/omni-asset-cli
+```
+
 ## Documentation / 详细文档
 
 - 中文使用文档：[docs/USER_GUIDE.zh.md](docs/USER_GUIDE.zh.md)

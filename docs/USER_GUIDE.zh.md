@@ -202,6 +202,44 @@ python3 omni_asset_cli.py physics-hit-test examples/minimal_scene.usda \
 
 `--render-video-style hit-test` 捕获同一轮 hit-test 场景。`--render-video-style asset-table-drop` 会委托给 `render_asset_table_drop.py`，用于生成更稳定的资产下落视频。视频是视觉证据，权威碰撞结论仍以 `summary.json` 和 `runtime_report.json` 的 PhysX contact report 为准。
 
+面向客户报告时，先验收视频再嵌入：
+
+```bash
+ffprobe -v error \
+  -show_entries format=duration,size \
+  -show_entries stream=codec_type,codec_name,width,height,nb_frames \
+  -of json OUT/render_videos/front.mp4
+```
+
+只有当 MP4 存在、非空、时长和帧数符合预期、画面是真实 runtime 场景，并且
+来自和已验收 `summary.json` / `runtime_report.json` 相同的 workflow 输出目录时，
+才把它放进报告。单独 retry 可以接受，但必须使用同一个 input USD 和同一个
+SimReady output USD，并在报告旁记录 retry 命令。不要使用合成占位视频、其他 run
+的旧视频，或不同资产的视频。如果 visual log 停在
+`capture-first-frame-start`，stderr 里出现 `cudaErrorNoDevice`，说明视频渲染没有
+完成；此时保留 `summary.json` / `runtime_report.json` 里的 contact 证据，单独
+重跑视频。优先使用更稳定的纠正路径：
+
+```bash
+python3 omni_asset_cli.py physics-hit-test path/to/asset.usd \
+  --template-scene examples/mini_test.usda \
+  --placement-mode tabletop \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --render-video \
+  --render-video-style hit-test \
+  --render-camera-preset front \
+  --render-every-n-frames 2 \
+  --render-video-fps 30 \
+  --out OUT_video_retry \
+  --runtime-docker-container isaac-sim \
+  --docker-workspace /workspace/omni-asset-cli
+```
+
+只有在 Isaac Sim 容器具备可用 CUDA render device 时，再重跑
+`asset-table-drop`。客户报告不要使用合成占位视频。
+
 如果需要渲染 physics bbox evidence，继续使用同一个 runtime harness：
 
 ```bash

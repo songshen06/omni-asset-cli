@@ -202,6 +202,47 @@ Output paths:
 
 `--render-video-style hit-test` captures the same hit-test scene. `--render-video-style asset-table-drop` delegates to `render_asset_table_drop.py` for the validated falling-asset visual style. Video is visual evidence; the authoritative collision result still comes from PhysX contact evidence in `summary.json` and `runtime_report.json`.
 
+For a customer-facing report, gate the video before embedding it:
+
+```bash
+ffprobe -v error \
+  -show_entries format=duration,size \
+  -show_entries stream=codec_type,codec_name,width,height,nb_frames \
+  -of json OUT/render_videos/front.mp4
+```
+
+Accept the video only when it exists, is non-empty, has the expected duration
+and frame count, shows the real runtime scene, and comes from the same workflow
+output directory as the accepted `summary.json` / `runtime_report.json`. A
+separate retry is acceptable only when it uses the same input USD and same
+SimReady output USD and is documented with the report. Do not use synthetic
+placeholder videos, old videos from another run, or videos for a different
+asset. If the visual log stops at `capture-first-frame-start` and stderr
+contains `cudaErrorNoDevice`, keep the contact evidence from `summary.json` /
+`runtime_report.json` and regenerate video separately. Prefer the stable
+correction path first:
+
+```bash
+python3 omni_asset_cli.py physics-hit-test path/to/asset.usd \
+  --template-scene examples/mini_test.usda \
+  --placement-mode tabletop \
+  --hit-mode top-drop \
+  --size-policy preserve \
+  --frames 240 \
+  --render-video \
+  --render-video-style hit-test \
+  --render-camera-preset front \
+  --render-every-n-frames 2 \
+  --render-video-fps 30 \
+  --out OUT_video_retry \
+  --runtime-docker-container isaac-sim \
+  --docker-workspace /workspace/omni-asset-cli
+```
+
+Use `asset-table-drop` again only when the Isaac Sim container has a working
+CUDA render device. Do not use synthetic placeholder videos in customer
+reports.
+
 To render physics bbox evidence, stay in the same runtime harness:
 
 ```bash
