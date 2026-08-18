@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "purpose": "Frozen Foundation shadow and runtime regression inventory. Populate to 20 approved assets before changing a customer gate.",
+  "required_count": 20,
+  "entries": [
+    {
+      "id": "minimal-scene",
+      "path": "examples/minimal_scene.usda",
+      "package": "static-prop",
+      "role": "repository_smoke",
+      "expected": "shadow_only"
+    },
+    {
+      "id": "boat",
+      "path": "examples/boat_test/boat.usd",
+      "package": "physics-prop",
+      "role": "repository_smoke",
+      "expected": "shadow_only"
+    },
+    {
+      "id": "cart-v2",
+      "path": "/home/horde/cart_v2.usda",
+      "package": "articulated-asset",
+      "role": "articulation_candidate",
+      "expected": "manual_runtime_review"
+    }
+  ],
+  "acceptance": {
+    "freeze_sha256": true,
+    "require_each_package": ["static-prop", "physics-prop", "articulated-asset"],
+    "require_known_failure_samples": true,
+    "change_customer_gate_only_after_entry_count": 20
+  }
+}

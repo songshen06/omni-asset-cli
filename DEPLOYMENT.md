@@ -102,6 +102,59 @@ cache root: ~/docker/isaac-sim
 
 脚本不会安装 Docker 或 NVIDIA Container Toolkit。如果 `--check` 失败，需要先修复宿主机依赖。
 
+## 4a. Deploy the pinned SimReady Foundation CLI
+
+`articulated-asset` 的上游静态基线为 NVIDIA SimReady Foundation
+`Prop-Robotics-Physx v1.0.0`。这是针对被动多刚体 prop 的选择：它覆盖 rigid
+body、PhysX collider 和 multi-body/joint 关系。不要仅为解决嵌套刚体而切换到
+`Robot-Body-Runnable`；后者增加 robot、drive 和 runnable 语义，不符合当前无执行器
+的小推车。
+
+将上游 checkout 与本仓库的 Python 3.10 validator 环境隔离部署。当前已验证的组合
+必须整体固定：Foundation `v2026.04.1`（commit
+`a1e9dd68ee2d107f74dc6cd6da875b54ad3f8fd3`）、Python 3.12、
+`simready-validate==2026.4.8`。不要让 pip 按 `>=` 自动升级该 validator；更新版本会
+造成 profile registry API 不兼容，表现为 profile 未注册。
+
+```bash
+git clone --branch v2026.04.1 https://github.com/NVIDIA/simready-foundation.git \
+  ~/simready-foundation-v2026.04.1
+git -C ~/simready-foundation-v2026.04.1 rev-parse HEAD
+
+python3.12 -m venv ~/simready-foundation-v2026.04.1/.venv
+~/simready-foundation-v2026.04.1/.venv/bin/python -m pip install --upgrade pip
+~/simready-foundation-v2026.04.1/.venv/bin/python -m pip install \
+  'simready-validate==2026.4.8' 'omniverse-asset-validator>=1.18' numpy
+```
+
+若部署机没有 `python3.12`，可用 `uv venv --python 3.12 <venv-path>` 供应隔离的
+CPython 3.12，再使用同一条安装命令。
+
+运行 focused articulated workflow 前，确认上游 profile 可被执行：
+
+```bash
+cd ~/omni-asset-cli
+.venv/bin/python omni_asset_cli.py articulated-physics-workflow path/to/cart.usda \
+  --foundation-root ~/simready-foundation-v2026.04.1 \
+  --foundation-python ~/simready-foundation-v2026.04.1/.venv/bin/python \
+  --foundation-tag v2026.04.1 \
+  --out out/cart_physics_structure
+```
+
+该 workflow 始终运行完整上游 `Prop-Robotics-Physx` 并保留原始输出，但本轮只以
+`RB.006`（嵌套刚体 transform stack）与 `RB.COL.002`（非 Mesh 的
+`PhysicsMeshCollisionAPI`）作为阻断项。质量、grasp 和物理材质 finding 会记录为
+deferred，不得表述为完整 profile 通过。HTML 审阅报告写入：
+
+```text
+out/cart_physics_structure/articulated_physics_structure_report.html
+```
+
+joint profile 在此 workflow 中用于验证 body0/body1、joint graph 和 multi-body
+feature；它不会自动修正嵌套刚体。`RB.006` 的实际修复仍需选择扁平 body-link
+层级，或 reset transform stack 并重算子刚体姿态与 joint frame，然后进行同一 Profile
+复验和 Isaac Sim Docker motion/contact 验证。
+
 也可以直接用 CLI probe 镜像：
 
 ```bash

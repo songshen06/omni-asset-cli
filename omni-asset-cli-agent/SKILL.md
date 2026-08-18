@@ -1,6 +1,6 @@
 ---
 name: omni-asset-cli-agent
-description: Guide agents to use this repository's omni_asset_cli.py tools for OpenUSD asset validation, mesh quality checks, Isaac Sim Docker physics hit tests, SimReady flywheel runs, topology debug renders, and report/artifact interpretation. Use when a user asks an agent to inspect USD/USDZ/USDA/USDC assets, validate mesh/material/reference quality, produce human-readable reports, run runtime physics evidence, or explain outputs from this CLI.
+description: Guide agents to use this repository's omni_asset_cli.py tools for OpenUSD asset validation, mesh quality checks, primitive-collider schema audits, Isaac Sim Docker physics hit tests, SimReady flywheel runs, topology debug renders, and report/artifact interpretation. Use when a user asks an agent to inspect USD/USDZ/USDA/USDC assets, validate mesh/material/reference quality, detect collider schema ambiguity, produce human-readable reports, run runtime physics evidence, or explain outputs from this CLI.
 ---
 
 # Omni Asset CLI Agent
@@ -24,6 +24,7 @@ Use these entry points:
 - Environment check: `.venv/bin/python omni_asset_cli.py env`
 - Static validator: `.venv/bin/python omni_asset_cli.py validate <asset> --profile stage1-furniture`
 - Mesh/collision preflight: `.venv/bin/python omni_asset_cli.py validate <asset> --profile collidable`
+- Primitive-collider schema audit (read-only): `.venv/bin/python omni_asset_cli.py physics-collider-audit <asset> --out out/<name>_collider_audit`
 - Natural language mapping: `.venv/bin/python omni_asset_cli.py map <asset> "check mesh topology"`
 - Isaac Sim runtime readiness, preferred in this workspace: `python3 omni_asset_cli.py physics-env --runtime-docker-container isaac-sim`
 - Isaac Sim runtime readiness by image: `python3 omni_asset_cli.py physics-env --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0`
@@ -33,6 +34,42 @@ Use these entry points:
 - Topology issue render: `.venv/bin/python omniverse-usd-asset-validator/scripts/render_mesh_topology_issues.py <staged_asset> --out out/<name>_mesh_wire_render --mesh-path <mesh_prim_path>`
 - Asset setup orbit render: `python3 omniverse-usd-asset-validator/scripts/render_asset_setup_orbit.py <asset> --out out/<name>_setup_orbit`
 - Isaac Sim MDL load probe: `python3 omniverse-usd-asset-validator/scripts/check_stage_mdl_load.py <stage>`
+
+## Primitive Collider Schema Audit And Repair Handoff
+
+For `RB.COL.002`, this CLI is the **detector and revalidator**, not the repair
+writer. The audit identifies collision prims that are not `UsdGeom.Mesh` but
+still carry `PhysicsMeshCollisionAPI` and `physics:approximation`. Such schema
+is ambiguous on primitive colliders and can mislead downstream physics tools.
+
+Run the read-only audit first:
+
+```bash
+.venv/bin/python omni_asset_cli.py physics-collider-audit INPUT_USD \
+  --out out/<name>_collider_audit
+```
+
+The command writes `primitive_collider_audit.json`. A conflict is an expected
+nonzero audit result; report the JSON path and finding count instead of treating
+it as a CLI crash. Do **not** modify the source USD from this repository.
+
+Hand the JSON to `usd-simready-inspector`, which owns the controlled candidate
+export:
+
+```bash
+cd ~/usd-simready-inspector
+.venv/bin/python usd_simready_cli.py collider-repair INPUT_USD \
+  --findings /absolute/path/primitive_collider_audit.json \
+  --output OUTPUT_CANDIDATE.usda \
+  --report OUTPUT_CANDIDATE.collider_repair.json
+```
+
+That repair accepts only safe findings owned by `usd-simready-inspector`; it
+creates a new USD and removes only `PhysicsMeshCollisionAPI` plus
+`physics:approximation` from the selected non-mesh colliders. It preserves
+`PhysicsCollisionAPI`, geometry, transforms, materials, rigid bodies, and
+joints. Re-run this CLI's audit on the candidate. A zero finding count proves
+the schema repair only; it is not Isaac Sim contact evidence.
 
 ## Validation Profiles
 

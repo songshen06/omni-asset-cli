@@ -751,6 +751,16 @@ def _strip_dynamic_physics_apis(asset_root: Usd.Prim) -> list[str]:
     for prim in Usd.PrimRange(asset_root):
         if not prim.IsActive() or not prim.IsDefined():
             continue
+        # A referenced articulated asset may be inserted below a different
+        # namespace in a diagnostic scene.  Its absolute joint body targets do
+        # not compose through that namespace, so a static-collider probe must
+        # deactivate joints in the temporary test stage.  This never writes to
+        # the source asset and deliberately isolates collision evidence from
+        # articulation behavior.
+        if prim.IsA(UsdPhysics.Joint):
+            prim.SetActive(False)
+            stripped.append(str(prim.GetPath()))
+            continue
         removed = False
         if prim.HasAPI(UsdPhysics.RigidBodyAPI):
             prim.RemoveAPI(UsdPhysics.RigidBodyAPI)
@@ -1976,7 +1986,11 @@ def _camera_target_and_radius(stage: Any, scene: SceneBuildResult) -> tuple[Any,
     asset_min = Gf.Vec3d(*scene.asset_bbox_min)
     asset_max = Gf.Vec3d(*scene.asset_bbox_max)
     box_start = Gf.Vec3d(*scene.box_initial_position)
-    box_extent = max(float(scene.box_size), 1.0)
+    # Template side-hit scenes reuse their authored dynamic actor and therefore
+    # do not populate ``box_size`` (top-drop scenes do).  Camera framing is
+    # diagnostic-only, so retain a conservative one-unit fallback instead of
+    # failing the physics run before simulation begins.
+    box_extent = max(float(scene.box_size) if scene.box_size is not None else 1.0, 1.0)
 
     view_range = Gf.Range3d()
     view_range.UnionWith(Gf.Range3d(asset_min, asset_max))

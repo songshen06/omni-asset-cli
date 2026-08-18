@@ -196,7 +196,63 @@ def build_physics_env_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--docker-workspace", args.docker_workspace])
     if args.docker_python:
         command.extend(["--docker-python", args.docker_python])
+    if getattr(args, "require_gpu", False):
+        command.append("--require-gpu")
     return command
+
+
+def build_foundation_validate_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(script_path("run_foundation_validation.py")), args.asset,
+               "--package", args.package, "--foundation-tag", args.foundation_tag]
+    if args.foundation_root:
+        command.extend(["--foundation-root", args.foundation_root])
+    if args.foundation_python:
+        command.extend(["--foundation-python", args.foundation_python])
+    if args.foundation_command:
+        command.extend(["--foundation-command", args.foundation_command])
+    if args.official_cli:
+        command.append("--official-cli")
+    if args.out:
+        command.extend(["--out", args.out])
+    if args.shadow:
+        command.append("--shadow")
+    return command
+
+
+def build_foundation_repair_plan_command(args: argparse.Namespace) -> list[str]:
+    return [sys.executable, str(script_path("foundation_repair_plan.py")), args.findings, "--out", args.out]
+
+
+def build_apply_foundation_repair_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(script_path("apply_foundation_repair.py")), args.repair_plan, "--out", args.out]
+    if args.apply_safe:
+        command.append("--apply-safe")
+    return command
+
+
+def build_articulated_policy_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(script_path("check_articulated_cart_policy.py")), args.asset, "--out", args.out]
+    if args.expected_rigid_bodies is not None:
+        command.extend(["--expected-rigid-bodies", str(args.expected_rigid_bodies)])
+    if args.expected_joints is not None:
+        command.extend(["--expected-joints", str(args.expected_joints)])
+    if args.scope:
+        command.extend(["--scope", args.scope])
+    return command
+
+
+def build_physics_collider_audit_command(args: argparse.Namespace) -> list[str]:
+    return [sys.executable, str(script_path("check_primitive_collider_semantics.py")), args.asset, "--out", args.out]
+
+
+def build_articulated_physics_workflow_command(args: argparse.Namespace) -> list[str]:
+    return [
+        sys.executable, str(script_path("run_articulated_physics_workflow.py")), args.asset,
+        "--foundation-root", args.foundation_root,
+        "--foundation-python", args.foundation_python,
+        "--foundation-tag", args.foundation_tag,
+        "--out", args.out,
+    ]
 
 
 def build_simready_flywheel_command(args: argparse.Namespace) -> list[str]:
@@ -387,6 +443,26 @@ def cmd_physics_hit_test(args: argparse.Namespace) -> int:
 
 def cmd_physics_env(args: argparse.Namespace) -> int:
     return passthrough(build_physics_env_command(args))
+
+
+def cmd_foundation_validate(args: argparse.Namespace) -> int:
+    return passthrough(build_foundation_validate_command(args))
+
+
+def cmd_foundation_repair_plan(args: argparse.Namespace) -> int:
+    return passthrough(build_foundation_repair_plan_command(args))
+
+
+def cmd_apply_foundation_repair(args: argparse.Namespace) -> int:
+    return passthrough(build_apply_foundation_repair_command(args))
+
+
+def cmd_articulated_policy(args: argparse.Namespace) -> int:
+    return passthrough(build_articulated_policy_command(args))
+
+
+def cmd_physics_collider_audit(args: argparse.Namespace) -> int:
+    return passthrough(build_physics_collider_audit_command(args))
 
 
 def cmd_simready_flywheel(args: argparse.Namespace) -> int:
@@ -668,7 +744,65 @@ def build_parser() -> argparse.ArgumentParser:
         default="/isaac-sim/python.sh",
         help="Isaac Sim Python launcher path inside the container",
     )
+    physics_env_parser.add_argument(
+        "--require-gpu",
+        action="store_true",
+        help="Require host and Isaac Sim Docker GPU visibility (needed for rendered evidence).",
+    )
     physics_env_parser.set_defaults(func=cmd_physics_env)
+
+    foundation_parser = subparsers.add_parser(
+        "foundation-validate",
+        help="Run pinned SimReady Foundation validation and write normalized shadow findings",
+    )
+    foundation_parser.add_argument("asset", help="Path to the USD asset")
+    foundation_parser.add_argument("--package", choices=["static-prop", "physics-prop", "articulated-asset", "runnable-robot"], required=True)
+    foundation_parser.add_argument("--foundation-tag", required=True, help="Approved SimReady Foundation release tag")
+    foundation_parser.add_argument("--foundation-root", help="Foundation checkout pinned to the release tag")
+    foundation_parser.add_argument("--foundation-python", help="Python interpreter in the isolated Foundation environment")
+    foundation_parser.add_argument("--foundation-command", help="Executor template with {asset}, {profile}, {out}, {tag}, {python}")
+    foundation_parser.add_argument("--official-cli", action="store_true", help="Run the pinned official simready-validate CLI")
+    foundation_parser.add_argument("--out", help="Output directory for foundation_validation.json")
+    foundation_parser.add_argument("--shadow", action="store_true", help="Do not affect existing validation or customer status")
+    foundation_parser.set_defaults(func=cmd_foundation_validate)
+
+    repair_plan_parser = subparsers.add_parser("foundation-repair-plan", help="Create a reviewable repair_plan.json from Foundation findings")
+    repair_plan_parser.add_argument("findings", help="foundation_validation.json or normalized foundation_findings.json")
+    repair_plan_parser.add_argument("--out", required=True, help="Output directory")
+    repair_plan_parser.set_defaults(func=cmd_foundation_repair_plan)
+
+    apply_repair_parser = subparsers.add_parser("apply-foundation-repair", help="Create a non-destructive candidate from an approved repair plan")
+    apply_repair_parser.add_argument("repair_plan", help="repair_plan.json")
+    apply_repair_parser.add_argument("--out", required=True, help="Output directory")
+    apply_repair_parser.add_argument("--apply-safe", action="store_true", help="Approve safe items only; never overwrite the source asset")
+    apply_repair_parser.set_defaults(func=cmd_apply_foundation_repair)
+
+    articulated_policy_parser = subparsers.add_parser("articulated-cart-policy", help="Check the articulated-cart rigid-body and joint graph")
+    articulated_policy_parser.add_argument("asset", help="Path to the USD asset")
+    articulated_policy_parser.add_argument("--out", required=True, help="Output directory")
+    articulated_policy_parser.add_argument("--expected-rigid-bodies", type=int, default=13)
+    articulated_policy_parser.add_argument("--expected-joints", type=int, default=12)
+    articulated_policy_parser.add_argument("--scope", choices=["topology", "physics-structure"], default="topology")
+    articulated_policy_parser.set_defaults(func=cmd_articulated_policy)
+
+    collider_audit_parser = subparsers.add_parser(
+        "physics-collider-audit",
+        help="Detect ambiguous MeshCollisionAPI/approximation schemas on primitive colliders without modifying the asset",
+    )
+    collider_audit_parser.add_argument("asset", help="Path to the USD asset")
+    collider_audit_parser.add_argument("--out", required=True, help="Output directory for primitive_collider_audit.json")
+    collider_audit_parser.set_defaults(func=cmd_physics_collider_audit)
+
+    articulated_workflow_parser = subparsers.add_parser(
+        "articulated-physics-workflow",
+        help="Run Prop-Robotics-Physx plus focused nested-body and collider-schema gates",
+    )
+    articulated_workflow_parser.add_argument("asset", help="Path to the USD asset")
+    articulated_workflow_parser.add_argument("--foundation-root", required=True)
+    articulated_workflow_parser.add_argument("--foundation-python", required=True)
+    articulated_workflow_parser.add_argument("--foundation-tag", default="v2026.04.1")
+    articulated_workflow_parser.add_argument("--out", required=True)
+    articulated_workflow_parser.set_defaults(func=lambda args: passthrough(build_articulated_physics_workflow_command(args)))
 
     flywheel_parser = subparsers.add_parser(
         "simready-flywheel",
