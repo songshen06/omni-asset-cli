@@ -25,6 +25,7 @@ Use these entry points:
 - Static validator: `.venv/bin/python omni_asset_cli.py validate <asset> --profile stage1-furniture`
 - Mesh/collision preflight: `.venv/bin/python omni_asset_cli.py validate <asset> --profile collidable`
 - Primitive-collider schema audit (read-only): `.venv/bin/python omni_asset_cli.py physics-collider-audit <asset> --out out/<name>_collider_audit`
+- Native Kit PhysX collider view: `python3 omni_asset_cli.py physics-collider-view <asset> --out out/<name>_physics_colliders --physics-colliders selected --runtime-docker-container isaac-sim`
 - Natural language mapping: `.venv/bin/python omni_asset_cli.py map <asset> "check mesh topology"`
 - Isaac Sim runtime readiness, preferred in this workspace: `python3 omni_asset_cli.py physics-env --runtime-docker-container isaac-sim`
 - Isaac Sim runtime readiness by image: `python3 omni_asset_cli.py physics-env --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0`
@@ -70,6 +71,28 @@ creates a new USD and removes only `PhysicsMeshCollisionAPI` plus
 `PhysicsCollisionAPI`, geometry, transforms, materials, rigid bodies, and
 joints. Re-run this CLI's audit on the candidate. A zero finding count proves
 the schema repair only; it is not Isaac Sim contact evidence.
+
+## Native Kit Physics Collider View
+
+Use `physics-collider-view` when the user needs a direct visual answer to
+"what physical shape is active?" It launches an isolated headless Kit session,
+selects the actual `CollisionAPI` prims, sets the same native menu state as
+**Physics > Colliders > Selected**, and captures a viewport PNG. It does not
+author debug prims into the source USD.
+
+```bash
+python3 omni_asset_cli.py physics-collider-view INPUT_USD \
+  --out out/<name>_physics_colliders \
+  --physics-colliders selected \
+  --runtime-docker-container isaac-sim
+```
+
+Review `OUT/orbit_frames/frame_0000.png` and
+`OUT/physics_colliders_view_manifest.json`. The manifest records selected
+collider paths and whether the native PhysX setting was applied. Use
+`--collider-only` only for a pure collider image; the default keeps visual
+geometry visible for shape comparison. This is debug/authoring evidence, not
+contact proof.
 
 ## Validation Profiles
 

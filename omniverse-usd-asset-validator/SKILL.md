@@ -90,6 +90,20 @@ then re-run this audit against that candidate. A clean re-audit only confirms
 the authoring/schema condition; runtime collision proof still requires Isaac
 Sim Docker contact evidence.
 
+Capture the native Kit viewport collider display for review:
+
+```bash
+omni-asset-cli physics-collider-view path/to/asset.usd \
+  --out out/asset_physics_colliders \
+  --physics-colliders selected \
+  --runtime-docker-container isaac-sim
+```
+
+This creates `orbit_frames/frame_0000.png` using the same state as Kit
+**Physics > Colliders > Selected** and writes a manifest with the selected
+`CollisionAPI` paths. It is a visual authoring diagnostic; use a Docker
+contact test for runtime collision acceptance.
+
 ## Natural-Language Handling Rules
 
 - Default to read-only validation and do not add `--fix` unless the user asks.

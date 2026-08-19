@@ -25,6 +25,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frames", type=int, default=120, help="Number of orbit frames to render")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
+    parser.add_argument("--viewport-settle-updates", type=int, default=180, help="Kit updates before the first viewport capture")
+    parser.add_argument("--camera-settle-updates", type=int, default=4, help="Kit updates after each camera move before capture")
     parser.add_argument("--camera-elevation-deg", type=float, default=24.0)
     parser.add_argument("--camera-distance-scale", type=float, default=2.7)
     parser.add_argument("--initial-azimuth-deg", type=float, default=0.0, help="Orbit angle of the first rendered frame.")
@@ -33,6 +35,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hide-bbox-overlays", action="store_true", help="Do not draw asset or collider AABB reference lines.")
     parser.add_argument("--hide-stage-probe", action="store_true", help="Hide the original test-stage probe; use with --contact-report.")
     parser.add_argument("--collider-only", action="store_true", help="Hide non-collider visual geometry and render CollisionAPI Gprims only.")
+    parser.add_argument(
+        "--physics-colliders",
+        choices=["off", "selected", "all"],
+        default="off",
+        help="Enable Kit's native Physics > Colliders debug display in the captured viewport.",
+    )
+    parser.add_argument(
+        "--hide-articulation-overlays",
+        action="store_true",
+        help="Do not draw rigid-body or joint helper overlays; useful for a clean native PhysX collider view.",
+    )
     parser.add_argument(
         "--contact-report",
         type=Path,
@@ -50,7 +63,10 @@ def parse_args() -> argparse.Namespace:
         help="How to place the center marker. auto prefers authored MassAPI, then geometry centroid.",
     )
     parser.add_argument("--keep-debug-usd", action="store_true", help="Keep the generated debug USD stage")
-    return parser.parse_args()
+    # Kit launch settings such as --/app/asyncRendering=false are deliberately
+    # left in sys.argv for SimulationApp while this script parses its own args.
+    args, _unknown_kit_args = parser.parse_known_args()
+    return args
 
 
 def _as_tuple3(value: Any) -> tuple[float, float, float]:
@@ -170,6 +186,31 @@ def _bind_collider_material(stage: Any, collider_prims: list[Any]) -> int:
         UsdShade.MaterialBindingAPI.Apply(prim).Bind(material)
         bound += 1
     return bound
+
+
+def _configure_native_physx_collider_display(context: Any, collider_paths: list[str], mode: str) -> dict[str, Any]:
+    """Set the same Kit viewport setting exposed by Physics > Colliders.
+
+    Selection exists only in this Kit session, while the input asset is
+    referenced by a generated debug stage. The source USD is not modified.
+    """
+    state: dict[str, Any] = {"requested": mode, "setting_applied": False, "selected_paths": []}
+    if mode == "off":
+        return state
+    try:
+        import carb.settings  # type: ignore
+        from omni.physx.bindings._physx import SETTING_DISPLAY_COLLIDERS  # type: ignore
+
+        if mode == "selected":
+            context.get_selection().set_selected_prim_paths(collider_paths, True)
+            state["selected_paths"] = collider_paths
+        # PhysX UI's Physics > Colliders menu maps None/Selected/All to 0/1/2.
+        display_value = 1 if mode == "selected" else 2
+        carb.settings.get_settings().set(SETTING_DISPLAY_COLLIDERS, display_value)
+        state.update({"setting_applied": True, "setting": SETTING_DISPLAY_COLLIDERS, "value": display_value})
+    except Exception as exc:  # pragma: no cover - depends on Isaac Sim PhysX UI extension
+        state["error"] = f"{type(exc).__name__}: {exc}"
+    return state
 
 
 def _add_contact_probe(stage: Any, report_path: Path | None) -> dict[str, Any] | None:
@@ -407,7 +448,7 @@ def _set_camera(camera: Any, matrix_op: Any, eye: Any, target: Any, radius: floa
 
 
 def build_debug_stage(asset: Path, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
-    from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux
+    from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics
 
     out_dir.mkdir(parents=True, exist_ok=True)
     stage_path = out_dir / "cup_setup_orbit_debug.usda"
@@ -415,6 +456,10 @@ def build_debug_stage(asset: Path, out_dir: Path, args: argparse.Namespace) -> d
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
 
     world = UsdGeom.Xform.Define(stage, "/World")
+    # The collider display is the native PhysX debug visualizer.  Give the
+    # isolated display stage a scene without changing the referenced asset.
+    physics_scene = UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
+    physics_scene.CreateGravityMagnitudeAttr(0.0)
     asset_xform = UsdGeom.Xform.Define(stage, ASSET_PATH)
     # Keep the debug stage relocatable inside a Docker-mounted staging package.
     # An absolute host path would be invalid when the stage is reopened in Isaac Sim.
@@ -480,7 +525,7 @@ def build_debug_stage(asset: Path, out_dir: Path, args: argparse.Namespace) -> d
     highlighted_collider_count = _bind_collider_material(stage, collider_prims)
     contact_probe = _add_contact_probe(stage, args.contact_report.resolve() if args.contact_report else None)
     center, center_method, center_prim, center_point_count = _choose_center(stage, asset_prim, asset_bbox, args.center_source)
-    articulation = _add_articulation_overlay(stage, asset_prim, diagonal, width)
+    articulation = None if args.hide_articulation_overlays else _add_articulation_overlay(stage, asset_prim, diagonal, width)
 
     if not args.hide_center_marker:
         marker_radius = max(diagonal * 0.06, 0.1)
@@ -541,6 +586,7 @@ def build_debug_stage(asset: Path, out_dir: Path, args: argparse.Namespace) -> d
         "asset_bbox": _range_tuple(asset_bbox),
         "asset_bbox_overlay": asset_bbox_path,
         "collider_count": len(collider_prims),
+        "collider_prim_paths": [str(prim.GetPath()) for prim in collider_prims],
         "rendered_representative_collider_count": len(collider_paths),
         "collider_bbox_overlays": collider_paths,
         "collider_bbox_union": _range_tuple(collider_bbox_union),
@@ -559,6 +605,7 @@ def build_debug_stage(asset: Path, out_dir: Path, args: argparse.Namespace) -> d
         "frame_count": args.frames,
         "width": args.width,
         "height": args.height,
+        "physics_colliders": {"requested": args.physics_colliders, "setting_applied": False, "selected_paths": []},
     }
 
 
@@ -573,10 +620,17 @@ def render_orbit(summary: dict[str, Any], args: argparse.Namespace, app: Any) ->
         context.open_stage(summary["debug_stage"])
         # A first clean headless capture needs a substantial settle period; otherwise
         # the asset can appear black even though its USD composition is valid.
-        for _ in range(180):
+        for _ in range(max(args.viewport_settle_updates, 0)):
             app.update()
 
         stage = context.get_stage()
+        summary["physics_colliders"] = _configure_native_physx_collider_display(
+            context,
+            list(summary.get("collider_prim_paths") or []),
+            args.physics_colliders,
+        )
+        for _ in range(30):
+            app.update()
         viewport = get_active_viewport()
         if viewport is None:
             return ["No active viewport is available."]
@@ -608,7 +662,7 @@ def render_orbit(summary: dict[str, Any], args: argparse.Namespace, app: Any) ->
             angle = math.radians(args.initial_azimuth_deg) + (math.tau * index) / max(args.frames, 1)
             eye = target + Gf.Vec3d(math.cos(angle) * xy_radius, math.sin(angle) * xy_radius, z)
             _set_camera(camera, matrix_op, eye, target, diagonal)
-            for _ in range(4):
+            for _ in range(max(args.camera_settle_updates, 0)):
                 app.update()
             frame_path = frames_dir / f"frame_{index:04d}.png"
             expected_frames.append(frame_path)
@@ -648,6 +702,22 @@ def main() -> int:
             pass
         print(json.dumps({"summary": str(summary_path), "errors": errors, "frames": args.frames}, indent=2))
         return 0 if not errors else 1
+    except Exception as exc:  # pragma: no cover - depends on Isaac Sim runtime
+        failure_path = args.out / "setup_orbit_failure.json"
+        failure_path.write_text(
+            json.dumps(
+                {
+                    "asset": str(args.asset),
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "source_asset_modified": False,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps({"failure": str(failure_path)}, indent=2), flush=True)
+        return 1
     finally:
         app.close()
 

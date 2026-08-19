@@ -122,6 +122,10 @@ print(json.dumps({"python": sys.executable, "simulation_app_available": ok, "sim
                 "ACCEPT_EULA=Y",
                 "-e",
                 "PRIVACY_CONSENT=Y",
+                "-e",
+                "OMNI_ENV_ACCEPT_EULA=Y",
+                "-e",
+                "OMNI_ENV_PRIVACY_CONSENT=Y",
                 "-v",
                 f"{Path(__file__).resolve().parents[2]}:{config.docker_workspace}",
                 "-w",
@@ -194,8 +198,7 @@ def _gpu_probe(config: ProbeConfig) -> dict[str, object]:
         ],
         timeout=10.0,
     )
-    docker_base = _docker_base_command(config)
-    if docker_base is None:
+    if not config.runtime_docker_container and not config.runtime_docker_image:
         return {
             "required": config.require_gpu,
             "ready": False,
@@ -203,15 +206,24 @@ def _gpu_probe(config: ProbeConfig) -> dict[str, object]:
             "reason": "No Docker runtime was provided for GPU probing.",
         }
 
-    container_nvml = _run_command(
-        docker_base
-        + [
-            "nvidia-smi",
-            "--query-gpu=index,name,driver_version,memory.total",
-            "--format=csv,noheader",
-        ],
-        timeout=20.0,
-    )
+    if config.runtime_docker_container:
+        container_nvml_command = [
+            "docker", "exec", config.runtime_docker_container, "nvidia-smi",
+            "--query-gpu=index,name,driver_version,memory.total", "--format=csv,noheader",
+        ]
+        container_cuda_command_prefix = ["docker", "exec", config.runtime_docker_container, config.docker_python]
+    else:
+        image_base = [
+            "docker", "run", "--rm", "--gpus", "all", "--network", "host", "--ipc", "host",
+            "-e", "ACCEPT_EULA=Y", "-e", "PRIVACY_CONSENT=Y",
+            "-e", "OMNI_ENV_ACCEPT_EULA=Y", "-e", "OMNI_ENV_PRIVACY_CONSENT=Y",
+        ]
+        container_nvml_command = [
+            *image_base, "--entrypoint", "nvidia-smi", config.runtime_docker_image,
+            "--query-gpu=index,name,driver_version,memory.total", "--format=csv,noheader",
+        ]
+        container_cuda_command_prefix = [*image_base, "--entrypoint", config.docker_python, config.runtime_docker_image]
+    container_nvml = _run_command(container_nvml_command, timeout=60.0)
     torch_probe = """import json
 try:
     import torch
@@ -219,10 +231,7 @@ try:
 except Exception as exc:
     print(json.dumps({"torch_imported": False, "error": repr(exc)}))
 """
-    container_cuda = _run_command(
-        docker_base + [config.docker_python, "-c", torch_probe],
-        timeout=60.0,
-    )
+    container_cuda = _run_command(container_cuda_command_prefix + ["-c", torch_probe], timeout=60.0)
     cuda_payload: dict[str, object] = {}
     try:
         cuda_payload = json.loads(str(container_cuda.get("stdout") or "{}"))

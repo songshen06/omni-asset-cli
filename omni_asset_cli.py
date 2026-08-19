@@ -245,6 +245,25 @@ def build_physics_collider_audit_command(args: argparse.Namespace) -> list[str]:
     return [sys.executable, str(script_path("check_primitive_collider_semantics.py")), args.asset, "--out", args.out]
 
 
+def build_physics_collider_view_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(script_path("render_physics_colliders_viewport.py")), args.asset, "--out", args.out]
+    command.extend(["--physics-colliders", args.physics_colliders, "--frames", str(args.frames)])
+    command.extend(["--width", str(args.width), "--height", str(args.height)])
+    if args.collider_only:
+        command.append("--collider-only")
+    if args.runtime_docker_container:
+        command.extend(["--runtime-docker-container", args.runtime_docker_container])
+    if args.runtime_docker_image:
+        command.extend(["--runtime-docker-image", args.runtime_docker_image])
+    if args.runtime_docker_preflight:
+        command.extend(["--runtime-docker-preflight", args.runtime_docker_preflight])
+    if args.docker_workspace:
+        command.extend(["--docker-workspace", args.docker_workspace])
+    if args.docker_python:
+        command.extend(["--docker-python", args.docker_python])
+    return command
+
+
 def build_articulated_physics_workflow_command(args: argparse.Namespace) -> list[str]:
     return [
         sys.executable, str(script_path("run_articulated_physics_workflow.py")), args.asset,
@@ -463,6 +482,10 @@ def cmd_articulated_policy(args: argparse.Namespace) -> int:
 
 def cmd_physics_collider_audit(args: argparse.Namespace) -> int:
     return passthrough(build_physics_collider_audit_command(args))
+
+
+def cmd_physics_collider_view(args: argparse.Namespace) -> int:
+    return passthrough(build_physics_collider_view_command(args))
 
 
 def cmd_simready_flywheel(args: argparse.Namespace) -> int:
@@ -792,6 +815,30 @@ def build_parser() -> argparse.ArgumentParser:
     collider_audit_parser.add_argument("asset", help="Path to the USD asset")
     collider_audit_parser.add_argument("--out", required=True, help="Output directory for primitive_collider_audit.json")
     collider_audit_parser.set_defaults(func=cmd_physics_collider_audit)
+
+    collider_view_parser = subparsers.add_parser(
+        "physics-collider-view",
+        help="Capture Kit viewport Physics > Colliders native debug display as a PNG artifact",
+    )
+    collider_view_parser.add_argument("asset", help="Path to the USD asset")
+    collider_view_parser.add_argument("--out", required=True, help="Output directory for viewport PNG and JSON manifest")
+    collider_view_parser.add_argument(
+        "--physics-colliders", choices=["selected", "all"], default="selected",
+        help="Kit Physics > Colliders display mode; selected selects authored CollisionAPI prims first",
+    )
+    collider_view_parser.add_argument("--collider-only", action="store_true", help="Hide non-collider geometry in the captured view")
+    collider_view_parser.add_argument("--frames", type=int, default=1, help="Orbit frames to capture; one is normally sufficient for review")
+    collider_view_parser.add_argument("--width", type=int, default=1280)
+    collider_view_parser.add_argument("--height", type=int, default=720)
+    collider_view_parser.add_argument("--runtime-docker-image", help="Isaac Sim Docker image for a one-shot run")
+    collider_view_parser.add_argument("--runtime-docker-container", help="Running Isaac Sim Docker container to exec into")
+    collider_view_parser.add_argument(
+        "--runtime-docker-preflight", choices=["auto", "check", "restart", "skip"], default="auto",
+        help="Container clean-start policy before Kit viewport capture",
+    )
+    collider_view_parser.add_argument("--docker-workspace", default="/workspace/omni-asset-cli")
+    collider_view_parser.add_argument("--docker-python", default="/isaac-sim/python.sh")
+    collider_view_parser.set_defaults(func=cmd_physics_collider_view)
 
     articulated_workflow_parser = subparsers.add_parser(
         "articulated-physics-workflow",
