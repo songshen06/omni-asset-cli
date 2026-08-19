@@ -25,7 +25,9 @@ Use these entry points:
 - Static validator: `.venv/bin/python omni_asset_cli.py validate <asset> --profile stage1-furniture`
 - Mesh/collision preflight: `.venv/bin/python omni_asset_cli.py validate <asset> --profile collidable`
 - Primitive-collider schema audit (read-only): `.venv/bin/python omni_asset_cli.py physics-collider-audit <asset> --out out/<name>_collider_audit`
+- Convex MeshCollider risk HTML: `python3 omni_asset_cli.py physics-convex-collider-report --audit out/<name>_collider_audit/primitive_collider_audit.json --render-dir out/<name>_physx_three_view --upstream-profile Prop-Robotics-Physx --expected-mesh-approximation sdf --out out/<name>_convex_collider_analysis.html`
 - Native Kit PhysX collider view: `python3 omni_asset_cli.py physics-collider-view <asset> --out out/<name>_physics_colliders --physics-colliders selected --runtime-docker-container isaac-sim`
+- Canonical PhysX collider comparison: `python3 omni_asset_cli.py physics-collider-three-view <asset> --out out/<name>_physx_three_view --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0`
 - Natural language mapping: `.venv/bin/python omni_asset_cli.py map <asset> "check mesh topology"`
 - Isaac Sim runtime readiness, preferred in this workspace: `python3 omni_asset_cli.py physics-env --runtime-docker-container isaac-sim`
 - Isaac Sim runtime readiness by image: `python3 omni_asset_cli.py physics-env --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0`
@@ -59,7 +61,7 @@ export:
 
 ```bash
 cd ~/usd-simready-inspector
-.venv/bin/python usd_simready_cli.py collider-repair INPUT_USD \
+.venv/bin/python apply_primitive_collider_repair.py INPUT_USD \
   --findings /absolute/path/primitive_collider_audit.json \
   --output OUTPUT_CANDIDATE.usda \
   --report OUTPUT_CANDIDATE.collider_repair.json
@@ -71,6 +73,16 @@ creates a new USD and removes only `PhysicsMeshCollisionAPI` plus
 `PhysicsCollisionAPI`, geometry, transforms, materials, rigid bodies, and
 joints. Re-run this CLI's audit on the candidate. A zero finding count proves
 the schema repair only; it is not Isaac Sim contact evidence.
+
+`physics-collider-audit` also contains the fixed `RB.COL.003` check. It flags
+Mesh colliders authored as `convexHull` or `convexDecomposition` for manual
+review because their final PhysX cooked shape can bridge visual openings. It
+does not claim a geometric mismatch until the native collider view or a
+targeted runtime probe confirms it. Generate the standalone explanation with
+`physics-convex-collider-report` after the audit.
+When a Foundation profile is selected, pass its name and its mesh approximation
+requirement to the report. The HTML must state this as upstream authoring
+conformance, separately from `RB.COL.003` runtime-shape risk.
 
 ## Native Kit Physics Collider View
 
@@ -93,6 +105,21 @@ collider paths and whether the native PhysX setting was applied. Use
 `--collider-only` only for a pure collider image; the default keeps visual
 geometry visible for shape comparison. This is debug/authoring evidence, not
 contact proof.
+
+For the fixed reference-style comparison that agents should prefer, use:
+
+```bash
+python3 omni_asset_cli.py physics-collider-three-view INPUT_USD \
+  --out out/<name>_physx_three_view \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+It locks the capture to front, side, and top views, neutral grey visual mesh,
+Kit's native **Physics > Colliders > All** display, and a 4.2 camera distance
+scale so the whole asset is framed. The green overlay is actual Kit PhysX UI
+output, not inferred bounds rendering. Read
+`OUT/physics_colliders_view_manifest.json` with the PNGs; it remains
+authoring/debug evidence, not contact proof.
 
 ## Validation Profiles
 

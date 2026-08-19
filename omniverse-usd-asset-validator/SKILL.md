@@ -90,6 +90,26 @@ then re-run this audit against that candidate. A clean re-audit only confirms
 the authoring/schema condition; runtime collision proof still requires Isaac
 Sim Docker contact evidence.
 
+The same audit always runs `RB.COL.003`: a manual-review check for Mesh
+colliders authored as `convexHull` or `convexDecomposition`. It detects that a
+runtime-cooked convex shape may bridge visual concavities; it does not pretend
+to measure the final cooked geometry from static USD alone. Create an
+explainable artifact by passing the audit and optional three-view output to:
+
+```bash
+omni-asset-cli physics-convex-collider-report \
+  --audit out/asset_collider_audit/primitive_collider_audit.json \
+  --render-dir out/asset_physx_three_view \
+  --upstream-profile Prop-Robotics-Physx \
+  --expected-mesh-approximation sdf \
+  --out out/asset_convex_collider_analysis.html
+```
+
+Treat the profile comparison as approximation authoring conformance only. Keep
+`RB.COL.003` separate: it is local evidence that the selected convex cooking
+strategy may deviate from visual geometry and requires native PhysX display or
+targeted runtime probe evidence.
+
 Capture the native Kit viewport collider display for review:
 
 ```bash
@@ -104,6 +124,19 @@ This creates `orbit_frames/frame_0000.png` using the same state as Kit
 `CollisionAPI` paths. It is a visual authoring diagnostic; use a Docker
 contact test for runtime collision acceptance.
 
+For the standard human/agent comparison artifact, use the fixed three-view
+command instead of manually combining overlay flags:
+
+```bash
+omni-asset-cli physics-collider-three-view path/to/asset.usd \
+  --out out/asset_physx_three_view \
+  --runtime-docker-image nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+It always captures front, side, and top PNGs in `orbit_frames/`: neutral grey
+visual mesh plus Kit's native **Physics > Colliders > All** green display.
+This is visual authoring evidence only, not a contact test.
+
 ## Natural-Language Handling Rules
 
 - Default to read-only validation and do not add `--fix` unless the user asks.
@@ -117,7 +150,8 @@ contact test for runtime collision acceptance.
 - Use `--placement-mode replace-table` for furniture/support surfaces, `tabletop` for small decor props placed on the template table, and `replace-box` only when debugging the input asset as the falling dynamic actor.
 - Use `--asset-rotation-y-deg` or `--asset-rotation-z-deg` when orientation correction is needed before collecting runtime evidence.
 - For rendered physics bbox evidence, use the existing runtime render path with `--render-frames --render-physics-bboxes`. The harness writes bbox curves only to the Kit session layer and clears them before shutdown; do not create or save debug prims in the source USD.
-- For `RB.COL.002` primitive-collider ambiguity, run `physics-collider-audit` before runtime work. Do not repair in this validator package: hand its finding JSON to `~/usd-simready-inspector/usd_simready_cli.py collider-repair`, require a new output USD, then re-audit the candidate.
+- For `RB.COL.002` primitive-collider ambiguity, run `physics-collider-audit` before runtime work. Do not repair in this validator package: hand its finding JSON to `~/usd-simready-inspector/apply_primitive_collider_repair.py`, require a new output USD, then re-audit the candidate.
+- For repeatable collider comparison, prefer `physics-collider-three-view`; do not replace its native green PhysX overlay with an inferred AABB or synthetic proxy wireframe.
 - Use `--render-physics-bbox-fallback-default-prim` only as a capture-path debug aid when no collider paths exist. Do not describe fallback default-prim bbox as physics collider evidence.
 - For multi-camera PNG/MP4 evidence, add repeated `--render-camera-preset` values plus `--render-video`. Prefer `--render-video-style asset-table-drop` for the validated falling-asset visual style, but keep `summary.json` and `runtime_report.json` PhysX contact evidence as the authoritative collision result.
 - For customer reports, only attach videos from the same workflow output directory as the accepted runtime JSON, or from a documented retry using the same input USD and same SimReady output USD. Never substitute synthetic placeholder videos, old videos from another run, or videos for a different asset. If the render log stops at `capture-first-frame-start` with `cudaErrorNoDevice`, keep the contact evidence and regenerate video via a stable hit-test host-encode retry or rerun on a CUDA-capable render container.

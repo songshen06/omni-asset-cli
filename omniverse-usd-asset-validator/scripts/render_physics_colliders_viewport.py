@@ -17,9 +17,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Capture native Kit Physics > Colliders viewport output for a USD asset.")
     parser.add_argument("asset", type=Path)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--physics-colliders", choices=["selected", "all"], default="selected")
+    parser.add_argument("--physics-colliders", choices=["off", "selected", "all"], default="selected")
     parser.add_argument("--collider-only", action="store_true")
+    parser.add_argument("--collider-wireframe", action="store_true")
+    parser.add_argument("--application-level-capture", action="store_true")
     parser.add_argument("--frames", type=int, default=1)
+    parser.add_argument("--camera-layout", choices=["orbit", "three-view"], default="orbit")
+    parser.add_argument("--camera-distance-scale", type=float, default=2.7)
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--runtime-docker-image")
@@ -35,7 +39,7 @@ def _child_command(args: argparse.Namespace, config: RuntimeConfig) -> list[str]
     command = [
         _path_in_docker(script, config), _path_in_docker(args.asset, config),
         "--out", _path_in_docker(args.out, config),
-        "--frames", str(args.frames), "--width", str(args.width), "--height", str(args.height),
+        "--frames", str(args.frames), "--camera-layout", args.camera_layout, "--camera-distance-scale", str(args.camera_distance_scale), "--width", str(args.width), "--height", str(args.height),
         "--viewport-settle-updates", "600", "--camera-settle-updates", "300",
         "--physics-colliders", args.physics_colliders,
         "--hide-bbox-overlays", "--hide-center-marker", "--hide-articulation-overlays",
@@ -51,6 +55,13 @@ def _child_command(args: argparse.Namespace, config: RuntimeConfig) -> list[str]
     ]
     if args.collider_only:
         command.append("--collider-only")
+    if args.collider_wireframe:
+        command.append("--collider-wireframe")
+    if args.application_level_capture:
+        command.append("--application-level-capture")
+        command.extend(["--enable", "omni.kit.capture.viewport"])
+    if args.physics_colliders != "off":
+        command.extend(["--enable", "omni.physx.ui"])
     return command
 
 
@@ -68,6 +79,8 @@ def _write_manifest(
         "artifact_type": "kit-viewport-physics-colliders",
         "asset": str(args.asset),
         "physics_menu": {"colliders": args.physics_colliders},
+        "camera_layout": args.camera_layout,
+        "collider_wireframe": args.collider_wireframe,
         "selected_prim_policy": "all authored CollisionAPI prims" if args.physics_colliders == "selected" else None,
         "png_frames_dir": str(args.out / "orbit_frames"),
         "first_png": str(args.out / "orbit_frames" / "frame_0000.png"),
@@ -132,12 +145,19 @@ def main() -> int:
         script = Path(__file__).with_name("render_asset_setup_orbit.py").resolve()
         command = [
             sys.executable, str(script), str(args.asset), "--out", str(args.out),
-            "--frames", str(args.frames), "--width", str(args.width), "--height", str(args.height),
+            "--frames", str(args.frames), "--camera-layout", args.camera_layout, "--camera-distance-scale", str(args.camera_distance_scale), "--width", str(args.width), "--height", str(args.height),
             "--physics-colliders", args.physics_colliders,
             "--hide-bbox-overlays", "--hide-center-marker", "--hide-articulation-overlays",
         ]
         if args.collider_only:
             command.append("--collider-only")
+        if args.collider_wireframe:
+            command.append("--collider-wireframe")
+        if args.application_level_capture:
+            command.append("--application-level-capture")
+            command.extend(["--enable", "omni.kit.capture.viewport"])
+        if args.physics_colliders != "off":
+            command.extend(["--enable", "omni.physx.ui"])
     completed = subprocess.run(command, check=False)
     if args.runtime_docker_container:
         _make_docker_output_host_writable(config)

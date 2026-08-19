@@ -245,12 +245,55 @@ def build_physics_collider_audit_command(args: argparse.Namespace) -> list[str]:
     return [sys.executable, str(script_path("check_primitive_collider_semantics.py")), args.asset, "--out", args.out]
 
 
+def build_physics_convex_collider_report_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(script_path("build_convex_collider_analysis_report.py")), "--audit", args.audit, "--out", args.out]
+    if args.render_dir:
+        command.extend(["--render-dir", args.render_dir])
+    if args.output_json:
+        command.extend(["--output-json", args.output_json])
+    if args.upstream_profile:
+        command.extend(["--upstream-profile", args.upstream_profile])
+    if args.expected_mesh_approximation:
+        command.extend(["--expected-mesh-approximation", args.expected_mesh_approximation])
+    return command
+
+
 def build_physics_collider_view_command(args: argparse.Namespace) -> list[str]:
     command = [sys.executable, str(script_path("render_physics_colliders_viewport.py")), args.asset, "--out", args.out]
-    command.extend(["--physics-colliders", args.physics_colliders, "--frames", str(args.frames)])
+    command.extend(["--physics-colliders", args.physics_colliders, "--frames", str(args.frames), "--camera-layout", args.camera_layout, "--camera-distance-scale", str(args.camera_distance_scale)])
     command.extend(["--width", str(args.width), "--height", str(args.height)])
     if args.collider_only:
         command.append("--collider-only")
+    if args.collider_wireframe:
+        command.append("--collider-wireframe")
+    if args.application_level_capture:
+        command.append("--application-level-capture")
+    if args.runtime_docker_container:
+        command.extend(["--runtime-docker-container", args.runtime_docker_container])
+    if args.runtime_docker_image:
+        command.extend(["--runtime-docker-image", args.runtime_docker_image])
+    if args.runtime_docker_preflight:
+        command.extend(["--runtime-docker-preflight", args.runtime_docker_preflight])
+    if args.docker_workspace:
+        command.extend(["--docker-workspace", args.docker_workspace])
+    if args.docker_python:
+        command.extend(["--docker-python", args.docker_python])
+    return command
+
+
+def build_physics_collider_three_view_command(args: argparse.Namespace) -> list[str]:
+    """Build the canonical agent-safe native PhysX collider three-view capture."""
+    command = [
+        sys.executable, str(script_path("render_physics_colliders_viewport.py")), args.asset,
+        "--out", args.out,
+        "--physics-colliders", "all",
+        "--application-level-capture",
+        "--frames", "3",
+        "--camera-layout", "three-view",
+        "--camera-distance-scale", str(args.camera_distance_scale),
+        "--width", str(args.width),
+        "--height", str(args.height),
+    ]
     if args.runtime_docker_container:
         command.extend(["--runtime-docker-container", args.runtime_docker_container])
     if args.runtime_docker_image:
@@ -484,8 +527,16 @@ def cmd_physics_collider_audit(args: argparse.Namespace) -> int:
     return passthrough(build_physics_collider_audit_command(args))
 
 
+def cmd_physics_convex_collider_report(args: argparse.Namespace) -> int:
+    return passthrough(build_physics_convex_collider_report_command(args))
+
+
 def cmd_physics_collider_view(args: argparse.Namespace) -> int:
     return passthrough(build_physics_collider_view_command(args))
+
+
+def cmd_physics_collider_three_view(args: argparse.Namespace) -> int:
+    return passthrough(build_physics_collider_three_view_command(args))
 
 
 def cmd_simready_flywheel(args: argparse.Namespace) -> int:
@@ -816,6 +867,18 @@ def build_parser() -> argparse.ArgumentParser:
     collider_audit_parser.add_argument("--out", required=True, help="Output directory for primitive_collider_audit.json")
     collider_audit_parser.set_defaults(func=cmd_physics_collider_audit)
 
+    convex_report_parser = subparsers.add_parser(
+        "physics-convex-collider-report",
+        help="Build a standalone HTML and JSON explanation for RB.COL.003 convex mesh collider risk findings",
+    )
+    convex_report_parser.add_argument("--audit", required=True, help="primitive_collider_audit.json produced by physics-collider-audit")
+    convex_report_parser.add_argument("--out", required=True, help="Standalone HTML output path")
+    convex_report_parser.add_argument("--output-json", help="Structured companion report path")
+    convex_report_parser.add_argument("--render-dir", help="Optional physics-collider-three-view output directory to embed")
+    convex_report_parser.add_argument("--upstream-profile", help="Selected upstream Foundation profile name for an explicit alignment statement")
+    convex_report_parser.add_argument("--expected-mesh-approximation", help="Mesh approximation required by that selected upstream profile")
+    convex_report_parser.set_defaults(func=cmd_physics_convex_collider_report)
+
     collider_view_parser = subparsers.add_parser(
         "physics-collider-view",
         help="Capture Kit viewport Physics > Colliders native debug display as a PNG artifact",
@@ -823,11 +886,15 @@ def build_parser() -> argparse.ArgumentParser:
     collider_view_parser.add_argument("asset", help="Path to the USD asset")
     collider_view_parser.add_argument("--out", required=True, help="Output directory for viewport PNG and JSON manifest")
     collider_view_parser.add_argument(
-        "--physics-colliders", choices=["selected", "all"], default="selected",
+        "--physics-colliders", choices=["off", "selected", "all"], default="selected",
         help="Kit Physics > Colliders display mode; selected selects authored CollisionAPI prims first",
     )
     collider_view_parser.add_argument("--collider-only", action="store_true", help="Hide non-collider geometry in the captured view")
+    collider_view_parser.add_argument("--collider-wireframe", action="store_true", help="Overlay green actual-collider feature edges on the grey visual mesh")
+    collider_view_parser.add_argument("--application-level-capture", action="store_true", help="Capture viewport application overlays")
     collider_view_parser.add_argument("--frames", type=int, default=1, help="Orbit frames to capture; one is normally sufficient for review")
+    collider_view_parser.add_argument("--camera-layout", choices=["orbit", "three-view"], default="orbit", help="Camera layout: orbit or front/side/top three-view")
+    collider_view_parser.add_argument("--camera-distance-scale", type=float, default=2.7, help="Camera distance multiplier; increase to keep the full asset in frame")
     collider_view_parser.add_argument("--width", type=int, default=1280)
     collider_view_parser.add_argument("--height", type=int, default=720)
     collider_view_parser.add_argument("--runtime-docker-image", help="Isaac Sim Docker image for a one-shot run")
@@ -839,6 +906,22 @@ def build_parser() -> argparse.ArgumentParser:
     collider_view_parser.add_argument("--docker-workspace", default="/workspace/omni-asset-cli")
     collider_view_parser.add_argument("--docker-python", default="/isaac-sim/python.sh")
     collider_view_parser.set_defaults(func=cmd_physics_collider_view)
+
+    collider_three_view_parser = subparsers.add_parser(
+        "physics-collider-three-view",
+        help="Capture grey mesh plus native green PhysX collider front/side/top PNG evidence",
+    )
+    collider_three_view_parser.add_argument("asset", help="Path to the USD asset")
+    collider_three_view_parser.add_argument("--out", required=True, help="Output directory for three viewport PNGs and JSON manifest")
+    collider_three_view_parser.add_argument("--camera-distance-scale", type=float, default=4.2, help="Camera distance multiplier; default frames the whole asset")
+    collider_three_view_parser.add_argument("--width", type=int, default=1280)
+    collider_three_view_parser.add_argument("--height", type=int, default=720)
+    collider_three_view_parser.add_argument("--runtime-docker-image", help="Isaac Sim Docker image for a one-shot run")
+    collider_three_view_parser.add_argument("--runtime-docker-container", help="Running Isaac Sim Docker container to exec into")
+    collider_three_view_parser.add_argument("--runtime-docker-preflight", choices=["auto", "check", "restart", "skip"], default="auto", help="Container clean-start policy before Kit viewport capture")
+    collider_three_view_parser.add_argument("--docker-workspace", default="/workspace/omni-asset-cli")
+    collider_three_view_parser.add_argument("--docker-python", default="/isaac-sim/python.sh")
+    collider_three_view_parser.set_defaults(func=cmd_physics_collider_three_view)
 
     articulated_workflow_parser = subparsers.add_parser(
         "articulated-physics-workflow",

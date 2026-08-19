@@ -30,11 +30,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera-elevation-deg", type=float, default=24.0)
     parser.add_argument("--camera-distance-scale", type=float, default=2.7)
     parser.add_argument("--initial-azimuth-deg", type=float, default=0.0, help="Orbit angle of the first rendered frame.")
+    parser.add_argument(
+        "--camera-layout",
+        choices=["orbit", "three-view"],
+        default="orbit",
+        help="orbit distributes cameras around the asset; three-view captures front, side, and top orthographic-style review angles.",
+    )
     parser.add_argument("--line-width", type=float, default=0.0, help="Overlay line width; 0 chooses automatic width")
     parser.add_argument("--hide-center-marker", action="store_true", help="Do not draw the diagnostic center marker and axes.")
     parser.add_argument("--hide-bbox-overlays", action="store_true", help="Do not draw asset or collider AABB reference lines.")
     parser.add_argument("--hide-stage-probe", action="store_true", help="Hide the original test-stage probe; use with --contact-report.")
     parser.add_argument("--collider-only", action="store_true", help="Hide non-collider visual geometry and render CollisionAPI Gprims only.")
+    parser.add_argument(
+        "--collider-wireframe",
+        action="store_true",
+        help="Overlay green feature-edge lines extracted from actual Mesh collider topology.",
+    )
+    parser.add_argument("--application-level-capture", action="store_true")
     parser.add_argument(
         "--physics-colliders",
         choices=["off", "selected", "all"],
@@ -148,9 +160,11 @@ def _bind_ghost_asset_material(stage: Any, asset_prim: Any) -> int:
     material = _material(
         stage,
         f"{DEBUG_ROOT}/Materials/GhostAsset",
-        (0.16, 0.72, 1.0),
+        # A moderately emissive neutral grey keeps thin front/side details
+        # readable against the headless viewport's black background.
+        (0.48, 0.52, 0.58),
         emissive=True,
-        opacity=0.82,
+        opacity=1.0,
     )
     bound = 0
     for prim in stage.Traverse():
@@ -186,6 +200,77 @@ def _bind_collider_material(stage: Any, collider_prims: list[Any]) -> int:
         UsdShade.MaterialBindingAPI.Apply(prim).Bind(material)
         bound += 1
     return bound
+
+
+def _add_mesh_collider_feature_edges(stage: Any, collider_prims: list[Any], width: float) -> int:
+    """Draw green crease lines from actual collider Mesh topology.
+
+    This deliberately excludes co-planar triangulation and disconnected mesh
+    seam edges.  Imported assets often contain UV/partition seams that would
+    produce tens of thousands of dotted lines; using only edges whose adjacent
+    face normals differ by at least 35 degrees gives a readable structural
+    outline while remaining derived from collider points and face indices.
+    """
+    from pxr import Gf, Sdf, UsdGeom
+
+    max_edges = 30_000
+    crease_cosine = math.cos(math.radians(35.0))
+    xform_cache = UsdGeom.XformCache()
+    root = UsdGeom.Xform.Define(stage, f"{DEBUG_ROOT}/ColliderFeatureEdges")
+    total = 0
+    for mesh_index, prim in enumerate(collider_prims):
+        if not prim.IsA(UsdGeom.Mesh):
+            continue
+        mesh = UsdGeom.Mesh(prim)
+        points = mesh.GetPointsAttr().Get() or []
+        counts = mesh.GetFaceVertexCountsAttr().Get() or []
+        indices = mesh.GetFaceVertexIndicesAttr().Get() or []
+        if not points or not counts or not indices:
+            continue
+        # edge -> (first face normal, adjacency/feature marker). marker -1 is
+        # a sharp edge; marker 1/2 is a seam or smooth/internal edge.
+        edges: dict[tuple[int, int], tuple[tuple[float, float, float], int]] = {}
+        offset = 0
+        for count in counts:
+            face = indices[offset: offset + count]
+            offset += count
+            if len(face) < 3:
+                continue
+            p0, p1, p2 = (points[face[0]], points[face[1]], points[face[2]])
+            ax, ay, az = float(p1[0] - p0[0]), float(p1[1] - p0[1]), float(p1[2] - p0[2])
+            bx, by, bz = float(p2[0] - p0[0]), float(p2[1] - p0[1]), float(p2[2] - p0[2])
+            nx, ny, nz = ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx
+            length = math.sqrt(nx * nx + ny * ny + nz * nz)
+            if length <= 1e-12:
+                continue
+            normal = (nx / length, ny / length, nz / length)
+            for local_index, start in enumerate(face):
+                end = face[(local_index + 1) % len(face)]
+                key = (start, end) if start < end else (end, start)
+                prior = edges.get(key)
+                if prior is None:
+                    edges[key] = (normal, 1)
+                    continue
+                prior_normal, marker = prior
+                if marker == 1:
+                    dot = prior_normal[0] * normal[0] + prior_normal[1] * normal[1] + prior_normal[2] * normal[2]
+                    edges[key] = (prior_normal, -1 if dot < crease_cosine else 2)
+        feature_edges = [key for key, (_normal, marker) in edges.items() if marker == -1]
+        if len(feature_edges) > max_edges:
+            step = math.ceil(len(feature_edges) / max_edges)
+            feature_edges = feature_edges[::step]
+        if not feature_edges:
+            continue
+        parent = UsdGeom.Xform.Define(stage, f"{root.GetPath()}/Collider_{mesh_index:03d}")
+        parent.AddTransformOp().Set(xform_cache.GetLocalToWorldTransform(prim))
+        curves = UsdGeom.BasisCurves.Define(stage, f"{parent.GetPath()}/Edges")
+        curves.CreateTypeAttr("linear")
+        curves.CreateCurveVertexCountsAttr([2] * len(feature_edges))
+        curves.CreatePointsAttr([Gf.Vec3f(*points[vertex]) for edge in feature_edges for vertex in edge])
+        curves.CreateWidthsAttr([max(width * 1.8, 0.008)])
+        curves.CreateDisplayColorAttr([Gf.Vec3f(0.05, 0.95, 0.22)])
+        total += len(feature_edges)
+    return total
 
 
 def _configure_native_physx_collider_display(context: Any, collider_paths: list[str], mode: str) -> dict[str, Any]:
@@ -522,7 +607,10 @@ def build_debug_stage(asset: Path, out_dir: Path, args: argparse.Namespace) -> d
                 UsdGeom.Imageable(prim).MakeInvisible()
     else:
         ghost_mesh_count = _bind_ghost_asset_material(stage, asset_prim)
-    highlighted_collider_count = _bind_collider_material(stage, collider_prims)
+    # Leave the referenced visual mesh grey.  Optional green curves are exact
+    # collider feature edges, so the line overlay remains legible when visual
+    # geometry and CollisionAPI live on the same Mesh.
+    highlighted_collider_count = _add_mesh_collider_feature_edges(stage, collider_prims, width) if args.collider_wireframe else 0
     contact_probe = _add_contact_probe(stage, args.contact_report.resolve() if args.contact_report else None)
     center, center_method, center_prim, center_point_count = _choose_center(stage, asset_prim, asset_bbox, args.center_source)
     articulation = None if args.hide_articulation_overlays else _add_articulation_overlay(stage, asset_prim, diagonal, width)
@@ -599,10 +687,12 @@ def build_debug_stage(asset: Path, out_dir: Path, args: argparse.Namespace) -> d
         },
         "ghost_material_bound_mesh_count": ghost_mesh_count,
         "highlighted_actual_collider_count": highlighted_collider_count,
+        "collider_wireframe": args.collider_wireframe,
         "first_contact_probe": contact_probe,
         "articulation_overlay": articulation,
         "camera_path": CAMERA_PATH,
         "frame_count": args.frames,
+        "camera_layout": args.camera_layout,
         "width": args.width,
         "height": args.height,
         "physics_colliders": {"requested": args.physics_colliders, "setting_applied": False, "selected_paths": []},
@@ -658,17 +748,45 @@ def render_orbit(summary: dict[str, Any], args: argparse.Namespace, app: Any) ->
         frames_dir.mkdir(parents=True, exist_ok=True)
 
         expected_frames = []
-        for index in range(max(args.frames, 1)):
-            angle = math.radians(args.initial_azimuth_deg) + (math.tau * index) / max(args.frames, 1)
-            eye = target + Gf.Vec3d(math.cos(angle) * xy_radius, math.sin(angle) * xy_radius, z)
+        if args.camera_layout == "three-view":
+            # Z-up: front (-Y), side (+X), then top (+Z).  Slight elevation
+            # avoids a degenerate look-at basis while retaining a true review view.
+            view_specs = [("front", -90.0, 0.0), ("side", 0.0, 0.0), ("top", 0.0, 89.0)]
+        else:
+            view_specs = [
+                (f"orbit_{index:04d}", math.degrees(math.radians(args.initial_azimuth_deg) + (math.tau * index) / max(args.frames, 1)), args.camera_elevation_deg)
+                for index in range(max(args.frames, 1))
+            ]
+        summary["camera_views"] = [name for name, _azimuth, _elevation in view_specs]
+        for index, (_name, azimuth_deg, elevation_deg) in enumerate(view_specs):
+            camera_elevation = math.radians(elevation_deg)
+            view_z = math.sin(camera_elevation) * radius
+            view_xy_radius = math.cos(camera_elevation) * radius
+            angle = math.radians(azimuth_deg)
+            eye = target + Gf.Vec3d(math.cos(angle) * view_xy_radius, math.sin(angle) * view_xy_radius, view_z)
             _set_camera(camera, matrix_op, eye, target, diagonal)
             for _ in range(max(args.camera_settle_updates, 0)):
                 app.update()
             frame_path = frames_dir / f"frame_{index:04d}.png"
             expected_frames.append(frame_path)
-            capture_viewport_to_file(viewport, str(frame_path))
-            for _ in range(8):
-                app.update()
+            if args.application_level_capture:
+                # PhysX viewport overlays are drawn after the renderer AOV.
+                # Capture the Kit swapchain, as used by omni.ui UI tests, so
+                # the output includes those GUI/debug draw passes.
+                import omni.renderer_capture  # type: ignore
+                capture = omni.renderer_capture.acquire_renderer_capture_interface()
+                capture.capture_next_frame_swapchain(str(frame_path))
+                for _ in range(120):
+                    app.update()
+                    capture.wait_async_capture()
+                    if frame_path.exists():
+                        break
+                if not frame_path.exists():
+                    errors.append(f"frame={index}: swapchain capture wrote no output")
+            else:
+                capture_viewport_to_file(viewport, str(frame_path))
+                for _ in range(8):
+                    app.update()
         for _ in range(90):
             app.update()
         for index, frame_path in enumerate(expected_frames):

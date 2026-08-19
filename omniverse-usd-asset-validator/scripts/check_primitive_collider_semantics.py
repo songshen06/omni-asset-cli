@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Detect ambiguous mesh-collision schemas authored on USD primitives."""
+"""Detect primitive schema conflicts and convex-mesh collider review risks."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from foundation_common import sha256_file, write_json
 
 RULE_ID = "RB.COL.002"
 REPAIR_ACTION = "remove_non_mesh_mesh_collision_api_and_approximation"
+CONVEX_RULE_ID = "RB.COL.003"
+CONVEX_APPROXIMATIONS = {"convexHull", "convexDecomposition"}
 
 
 def main() -> int:
@@ -42,19 +44,42 @@ def main() -> int:
 
     collider_count = 0
     conflicts: list[dict[str, Any]] = []
+    convex_reviews: list[dict[str, Any]] = []
     for prim in stage.Traverse():
         if prim.HasAPI(UsdPhysics.CollisionAPI):
             collider_count += 1
-        if not prim.HasAPI(UsdPhysics.MeshCollisionAPI) or prim.IsA(UsdGeom.Mesh):
+        if not prim.HasAPI(UsdPhysics.MeshCollisionAPI):
             continue
         approximation = prim.GetAttribute("physics:approximation").Get()
+        approximation_text = str(approximation) if approximation is not None else None
+        if prim.IsA(UsdGeom.Mesh) and approximation_text in CONVEX_APPROXIMATIONS:
+            convex_reviews.append({
+                "rule_id": CONVEX_RULE_ID,
+                "severity": "warning",
+                "prim": str(prim.GetPath()),
+                "prim_type": prim.GetTypeName(),
+                "physics_approximation": approximation_text,
+                "risk": "runtime_cooked_convex_shape_may_bridge_visual_concavities_or_openings",
+                "repairability": "manual",
+                "repair": {
+                    "owner": "asset_author",
+                    "action": "split_or_author_explicit_colliders_then_validate_with_physx_view_and_probe",
+                    "preserves": ["visual_mesh", "rigid_body_intent", "joint_intent"],
+                },
+                "evidence_required": [
+                    "physics-collider-three-view",
+                    "physics-hit-test or targeted A/B probe",
+                ],
+            })
+        if prim.IsA(UsdGeom.Mesh):
+            continue
         conflicts.append({
             "rule_id": RULE_ID,
             "severity": "error",
             "prim": str(prim.GetPath()),
             "prim_type": prim.GetTypeName(),
             "mesh_collision_api": True,
-            "physics_approximation": str(approximation) if approximation is not None else None,
+            "physics_approximation": approximation_text,
             "repairability": "safe",
             "repair": {
                 "owner": "usd-simready-inspector",
@@ -65,8 +90,10 @@ def main() -> int:
     report["checks"] = {
         "collision_api_count": collider_count,
         "non_mesh_mesh_collision_conflict_count": len(conflicts),
+        "convex_mesh_collider_review_count": len(convex_reviews),
     }
-    report["findings"] = conflicts
+    report["findings"] = conflicts + convex_reviews
+    report["review_required"] = bool(convex_reviews)
     report["status"] = "passed" if not conflicts else "failed"
     write_json(args.out.resolve() / "primitive_collider_audit.json", report)
     print(args.out.resolve() / "primitive_collider_audit.json")
