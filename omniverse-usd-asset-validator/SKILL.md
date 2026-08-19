@@ -17,6 +17,18 @@ If the console script is not installed yet, fall back to:
 python3 omni_asset_cli.py ...
 ```
 
+## Foundation Profile Deployment Boundary
+
+Foundation-backed work requires a separately pinned Foundation checkout; it is
+not installed by `.[validator]`. For the current physics-prop/articulated-cart
+path, deploy Foundation `v2026.04.1` with Python 3.12 and
+`simready-validate==2026.4.8`, then use `Prop-Robotics-Physx v1.0.0` through
+`foundation-validate --official-cli --shadow`. This skill owns the profile
+execution, evidence normalization, native PhysX visual evidence, and Isaac Sim
+Docker contact validation. The inspector only performs controlled candidate
+repair from findings and does not itself declare Foundation conformance. See
+`DEPLOYMENT.md` section 4a before running profile-dependent commands.
+
 ## Workflow
 
 1. Identify the target asset.

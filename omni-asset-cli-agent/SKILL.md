@@ -17,6 +17,23 @@ If `.venv` is missing or lacks `omni.asset_validator`, use `python3` only after 
 
 For assets outside the repository but under `/home`, stage the whole asset package into `out/runtime_inputs/<package>/` before Docker runtime or render work so textures and sidecars are inside the repo mount.
 
+## Foundation Profile Deployment Boundary
+
+When a task references an upstream Foundation profile, deploy the pinned
+Foundation checkout separately from this Python 3.10 validator environment.
+For the current passive cart/physics-prop workflow, use Foundation
+`v2026.04.1`, Python 3.12, `simready-validate==2026.4.8`, and the selected
+`Prop-Robotics-Physx v1.0.0` profile. Run `foundation-validate --official-cli
+--shadow` before interpreting local findings. This repository owns that
+execution, normalized findings, native PhysX images, and Docker contact proof.
+
+`usd-simready-inspector` does not execute Foundation profiles. It may apply a
+candidate only from an approved finding contract and must preserve profile
+provenance. A Foundation approximation mismatch is upstream conformance; an
+`RB.COL.003` warning is local cooked-shape risk; neither replaces PhysX contact
+evidence. See `DEPLOYMENT.md` section 4a for the exact pinned install and smoke
+path.
+
 ## Command Selection
 
 Use these entry points:

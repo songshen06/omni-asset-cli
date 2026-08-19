@@ -20,12 +20,18 @@ Use the customer's home directory unless they explicitly request another path:
 ```text
 ~/omni-asset-cli
 ~/usd-simready-inspector
+~/simready-foundation-v2026.04.1
 ~/docker/isaac-sim
 ```
 
 `omni-asset-cli` is the orchestration and runtime validation repository.
 `usd-simready-inspector` is the recommendation, scale/orientation repair, static
 collider authoring, and package export repository.
+
+For Foundation-profile-dependent work, the Foundation checkout is a separate
+pinned dependency shared by the workflow. `omni-asset-cli` executes and records
+the upstream profile; `usd-simready-inspector` consumes approved findings to
+write candidate USDs and must not claim profile acceptance on its own.
 
 ## Host Prerequisites
 
@@ -76,6 +82,25 @@ python3 -m venv .venv
 
 If the inspector requirements are already installed or the repo uses a different
 documented setup, follow the repository's current README after checking it.
+
+## Deploy the pinned Foundation profile runtime
+
+Only deploy this environment when the requested workflow selects an upstream
+Foundation profile. Keep it isolated from the Python 3.10 validator venv:
+
+```bash
+git clone --branch v2026.04.1 https://github.com/NVIDIA/simready-foundation.git \
+  ~/simready-foundation-v2026.04.1
+python3.12 -m venv ~/simready-foundation-v2026.04.1/.venv
+~/simready-foundation-v2026.04.1/.venv/bin/python -m pip install --upgrade pip
+~/simready-foundation-v2026.04.1/.venv/bin/python -m pip install \
+  'simready-validate==2026.4.8' 'omniverse-asset-validator>=1.18' numpy
+```
+
+For the passive cart / physics-prop path, run `Prop-Robotics-Physx v1.0.0` in
+read-only shadow mode before repair. The exact command and pin verification are
+in `DEPLOYMENT.md` section 4a. Do not substitute local `RB.COL.003` warnings or
+Inspector repair output for this profile execution.
 
 ## Deploy Isaac Sim Docker
 
