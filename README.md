@@ -180,3 +180,7 @@ docs/                                     # User-facing guides
 Authoritative `physics-hit-test` runtime validation requires Linux with Isaac Sim Docker. Host Python dispatches the job; the Docker child process loads `SimulationApp` and writes the runtime artifacts.
 
 权威的 `physics-hit-test` runtime 物理验证需要 Linux + Isaac Sim Docker。宿主机 Python 只负责调度任务，Docker 子进程负责加载 `SimulationApp` 并写出 runtime 产物。
+
+`mesh-check` and `mesh-weld` run entirely in host Python and require only the OpenUSD Python bindings (`pxr`) plus `numpy` — both are installed by the `validator` extra (`pip install -e ".[validator]"`). No new libraries, no Docker. Run `python3 omni_asset_cli.py mesh-env` to verify readiness (dependency versions plus an in-memory weld smoke test).
+
+`mesh-check` 和 `mesh-weld` 完全运行在宿主机 Python，只依赖 OpenUSD Python 绑定（`pxr`）和 `numpy` —— 二者都已由 `validator` extra（`pip install -e ".[validator]"`）安装。无需新库，无需 Docker。运行 `python3 omni_asset_cli.py mesh-env` 验证环境（依赖版本 + 内存焊接冒烟测试）。

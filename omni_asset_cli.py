@@ -583,6 +583,10 @@ def cmd_mesh_weld(args: argparse.Namespace) -> int:
     return passthrough(build_mesh_weld_command(args))
 
 
+def cmd_mesh_env(_: argparse.Namespace) -> int:
+    return passthrough([sys.executable, str(script_path("check_mesh_topology_env.py"))])
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Unified CLI for OpenUSD asset validation and agent-friendly orchestration.",
@@ -904,6 +908,12 @@ def build_parser() -> argparse.ArgumentParser:
     mesh_weld_parser.add_argument("--mesh-path", help="Only weld the mesh prim at this USD path")
     mesh_weld_parser.add_argument("--report", help="Optional mesh_topology_report.json produced by mesh-check to cite")
     mesh_weld_parser.set_defaults(func=cmd_mesh_weld)
+
+    mesh_env_parser = subparsers.add_parser(
+        "mesh-env",
+        help="Check pxr/numpy readiness and run the in-memory mesh weld smoke test",
+    )
+    mesh_env_parser.set_defaults(func=cmd_mesh_env)
 
     articulated_policy_parser = subparsers.add_parser("articulated-cart-policy", help="Check the articulated-cart rigid-body and joint graph")
     articulated_policy_parser.add_argument("asset", help="Path to the USD asset")

@@ -8,6 +8,8 @@
 - 新增 `mesh-weld` 命令：非破坏性焊接修复（merge-by-distance 合并共位顶点、清除焊接产生的退化面、自动拓扑复验），输出候选 USD `<stem>.welded<suffix>` 与执行记录 `mesh_repair_weld.json`，源资产永不覆写。
 - 新增共享核心 `mesh_topology_common.py`：纯 pxr + numpy 实现（连通分量用标签传播 + 指针跳跃，无 scipy 依赖），primvar 支持 constant/uniform/vertex/varying/faceVarying 及索引形式，布局不支持时安全跳过该网格。
 - ARTIFACT_CONTRACT.md 登记 `mesh_topology_report.json` 与 `mesh_repair_weld.json` 两种规范产物。
+- 新增 `mesh-env` 命令（`check_mesh_topology_env.py`）：报告 Python/numpy/pxr 就绪状态，明确说明 scipy 非必需，并执行内存焊接冒烟测试（合成拆分网格 → 体检 → 焊接 → 回读校验）。未就绪时以 exit 2 输出安装提示。
+- README 运行要求补充说明：`mesh-check`/`mesh-weld` 只依赖现有 `validator` extra 提供的 `pxr` + `numpy`，无需新库。
 
 ### English
 
@@ -15,6 +17,8 @@
 - Added `mesh-weld`: non-destructive weld repair (merge-by-distance of coincident vertices, removal of weld-degenerated faces, automatic topology re-verification). Writes candidate `<stem>.welded<suffix>` plus `mesh_repair_weld.json`; the source asset is never overwritten.
 - Added shared core `mesh_topology_common.py`: pure pxr + numpy (connected components via label propagation with pointer jumping, no scipy). Primvars support constant/uniform/vertex/varying/faceVarying including indexed layouts; unsupported layouts skip the mesh safely.
 - Registered `mesh_topology_report.json` and `mesh_repair_weld.json` in ARTIFACT_CONTRACT.md.
+- Added `mesh-env` command with `check_mesh_topology_env.py`: reports Python/numpy/pxr readiness, states that scipy is not required, and runs an in-memory weld smoke test (synthetic split mesh -> analyze -> weld -> round-trip verification). Exits 2 with an install hint when not ready.
+- README runtime requirements now document that `mesh-check`/`mesh-weld` need only `pxr` + `numpy` from the existing `validator` extra.
 
 ## 2026-05-27
 
