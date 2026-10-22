@@ -551,6 +551,38 @@ def cmd_gallery(args: argparse.Namespace) -> int:
     return passthrough(build_gallery_command(args))
 
 
+def build_mesh_check_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(script_path("check_mesh_topology.py")), args.asset]
+    if args.out:
+        command.extend(["--out", args.out])
+    if args.tolerance is not None:
+        command.extend(["--tolerance", str(args.tolerance)])
+    if args.mesh_path:
+        command.extend(["--mesh-path", args.mesh_path])
+    if args.output_md:
+        command.extend(["--output-md", args.output_md])
+    return command
+
+
+def build_mesh_weld_command(args: argparse.Namespace) -> list[str]:
+    command = [sys.executable, str(script_path("mesh_repair_weld.py")), args.asset, "--out", args.out]
+    if args.tolerance is not None:
+        command.extend(["--tolerance", str(args.tolerance)])
+    if args.mesh_path:
+        command.extend(["--mesh-path", args.mesh_path])
+    if args.report:
+        command.extend(["--report", args.report])
+    return command
+
+
+def cmd_mesh_check(args: argparse.Namespace) -> int:
+    return passthrough(build_mesh_check_command(args))
+
+
+def cmd_mesh_weld(args: argparse.Namespace) -> int:
+    return passthrough(build_mesh_weld_command(args))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Unified CLI for OpenUSD asset validation and agent-friendly orchestration.",
@@ -850,6 +882,28 @@ def build_parser() -> argparse.ArgumentParser:
     apply_repair_parser.add_argument("--out", required=True, help="Output directory")
     apply_repair_parser.add_argument("--apply-safe", action="store_true", help="Approve safe items only; never overwrite the source asset")
     apply_repair_parser.set_defaults(func=cmd_apply_foundation_repair)
+
+    mesh_check_parser = subparsers.add_parser(
+        "mesh-check",
+        help="Static mesh topology health check (non-manifold, coincident points, degenerate faces)",
+    )
+    mesh_check_parser.add_argument("asset", help="Path to the USD asset")
+    mesh_check_parser.add_argument("--out", help="Output directory (default out/<stem>_mesh_topology)")
+    mesh_check_parser.add_argument("--tolerance", type=float, help="Absolute coincident-point tolerance (default 5e-7 x bbox diagonal)")
+    mesh_check_parser.add_argument("--mesh-path", help="Only analyze the mesh prim at this USD path")
+    mesh_check_parser.add_argument("--output-md", help="Optional Markdown report path")
+    mesh_check_parser.set_defaults(func=cmd_mesh_check)
+
+    mesh_weld_parser = subparsers.add_parser(
+        "mesh-weld",
+        help="Non-destructive weld repair: merge coincident vertices and drop degenerated faces into a candidate USD",
+    )
+    mesh_weld_parser.add_argument("asset", help="Path to the USD asset")
+    mesh_weld_parser.add_argument("--out", required=True, help="Output directory for the welded candidate and record")
+    mesh_weld_parser.add_argument("--tolerance", type=float, help="Absolute weld tolerance (default 5e-7 x per-mesh bbox diagonal)")
+    mesh_weld_parser.add_argument("--mesh-path", help="Only weld the mesh prim at this USD path")
+    mesh_weld_parser.add_argument("--report", help="Optional mesh_topology_report.json produced by mesh-check to cite")
+    mesh_weld_parser.set_defaults(func=cmd_mesh_weld)
 
     articulated_policy_parser = subparsers.add_parser("articulated-cart-policy", help="Check the articulated-cart rigid-body and joint graph")
     articulated_policy_parser.add_argument("asset", help="Path to the USD asset")

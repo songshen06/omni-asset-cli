@@ -52,6 +52,12 @@ flowchart TD
 
 ```bash
 omni-asset-cli validate path/to/asset.usd --profile stage1-furniture
+
+# Static mesh topology health check (read-only)
+python3 omni_asset_cli.py mesh-check path/to/asset.usd
+
+# Non-destructive weld repair (merge coincident vertices -> candidate USD)
+python3 omni_asset_cli.py mesh-weld path/to/asset.usd --out out/asset_weld
 ```
 
 ```bash

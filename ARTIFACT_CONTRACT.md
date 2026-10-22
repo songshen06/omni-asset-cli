@@ -88,6 +88,37 @@ not the primary status source.
 Consumers should inspect it after `summary.json` and `runtime_report.json`, or
 when diagnosing runtime failures.
 
+### `mesh_topology_report.json`
+
+Role: authoritative static mesh topology report.
+
+`mesh_topology_report.json` is written by `mesh-check` through
+`check_mesh_topology.py`. It records per-mesh topology health metrics
+(non-manifold vertices and edges, boundary edges, coincident point groups,
+degenerate or duplicate faces, winding consistency, connected components,
+Euler characteristic) plus normalized findings that reuse the repair-plan
+severity and repairability model. Read-only: the source asset is never
+modified.
+
+Consumers should use this report for geometric topology triage that the asset
+validator does not cover, and as the citable input for `mesh-weld`.
+
+### `mesh_repair_weld.json` and the welded candidate
+
+Role: authoritative weld repair record; the candidate is the repaired asset.
+
+`mesh_repair_weld.json` is written by `mesh-weld` through
+`mesh_repair_weld.py`. It records the source asset checksum, the welded
+candidate path and checksum, per-mesh before/after metrics, and a topology
+re-verification block. The candidate `<stem>.welded<suffix>` is a new file;
+the source asset is never overwritten. Rollback is deleting the candidate.
+
+Weld repair is `opt_in` risk in the repair-plan model: reviewers should diff
+`before`/`after` metrics in the record before promoting the candidate.
+Relative asset dependencies still resolve from the source directory, so
+reference-sensitive validation of the candidate requires the candidate to sit
+next to the original dependencies.
+
 ### Rendered frames and videos
 
 Role: visual evidence.
