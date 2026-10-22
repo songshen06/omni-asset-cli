@@ -1,0 +1,38 @@
+name: mesh-commands
+
+on:
+  push:
+    paths:
+      - "omniverse-usd-asset-validator/scripts/mesh_topology_common.py"
+      - "omniverse-usd-asset-validator/scripts/check_mesh_topology*.py"
+      - "omniverse-usd-asset-validator/scripts/mesh_repair_weld.py"
+      - ".github/workflows/mesh-commands.yml"
+  pull_request:
+    paths:
+      - "omniverse-usd-asset-validator/scripts/mesh_topology_common.py"
+      - "omniverse-usd-asset-validator/scripts/check_mesh_topology*.py"
+      - "omniverse-usd-asset-validator/scripts/mesh_repair_weld.py"
+      - ".github/workflows/mesh-commands.yml"
+  workflow_dispatch:
+
+jobs:
+  mesh:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install mesh command dependencies
+        run: python -m pip install numpy usd-core
+      - name: Readiness check with weld smoke test
+        run: python omniverse-usd-asset-validator/scripts/check_mesh_topology_env.py
+      - name: mesh-check on minimal_scene
+        run: python omniverse-usd-asset-validator/scripts/check_mesh_topology.py examples/minimal_scene.usda --out out/ci_mesh_minimal
+      - name: mesh-check on boat asset
+        run: python omniverse-usd-asset-validator/scripts/check_mesh_topology.py examples/boat_test/boat.usd --out out/ci_mesh_boat
